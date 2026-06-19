@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly, safeNum } from '../payroll'
+import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly, safeNum, workerMonthDeductions, LEVEL_COLOR } from '../payroll'
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 function uid() { return crypto.randomUUID() }
@@ -672,87 +672,237 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
           )}
 
           {/* Monthly Overview table */}
-          {overviewWorkers.length > 0 && (
-            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 16, overflowX: 'auto' }}>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', letterSpacing: 1, marginBottom: 12 }}>📊 MONTHLY OVERVIEW — {selectedMonth}</div>
-              <table style={{ borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11, minWidth: '100%' }}>
-                <thead>
-                  <tr style={{ position: 'sticky', top: 0, zIndex: 2 }}>
-                    <th style={{ padding: '6px 10px', textAlign: 'left', background: 'var(--surface2)', borderBottom: '2px solid var(--border2)', minWidth: 100, fontWeight: 700 }}>Date</th>
-                    {overviewWorkers.map(w => (
-                      <th key={w.id} style={{ padding: '6px 8px', background: 'var(--surface2)', borderBottom: '2px solid var(--border2)', minWidth: 80, textAlign: 'right', fontWeight: 700, fontSize: 10 }}>
-                        {w.name.split(' ')[0]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {allDates.map(date => {
-                    const off = isDayOff(daysOff, date, selectedCrew)
-                    const noData = !crewHasUnitsOnDay(selectedCrew, date, daily, products)
-                    if (off || noData) return (
-                      <tr key={date} style={{ background: off ? 'rgba(220,38,38,.04)' : '' }} onClick={() => setSelectedDate(date)}>
-                        <td style={{ padding: '4px 10px', color: off ? 'var(--danger)' : 'var(--text2)', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}>
-                          {date.slice(5)} {off ? '🔴' : ''}
-                        </td>
-                        {overviewWorkers.map(w => <td key={w.id} style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--text2)', borderBottom: '1px solid var(--border)' }}>—</td>)}
+          {overviewWorkers.length > 0 && (() => {
+            // Pre-compute per-worker monthly stats
+            const workerStats = overviewWorkers.map(w => {
+              let gross = 0
+              let daysWorked = 0
+              let totalWorkingDays = 0
+              allDates.forEach(date => {
+                const off = isDayOff(daysOff, date, selectedCrew)
+                const hasData = crewHasUnitsOnDay(selectedCrew, date, daily, products)
+                if (off || !hasData) return
+                totalWorkingDays++
+                const f = getDayFraction(date, w.id, absent, dayFraction)
+                daysWorked += f
+                const e = getWorkerDayEarning(w.id, date)
+                gross += e || 0
+              })
+              const tax = w.taxAmount || 0
+              const deds = workerMonthDeductions(w.id, selectedMonth, state.deductions)
+              const net = gross - tax - deds
+              return { w, gross, net, daysWorked, totalWorkingDays }
+            })
+
+            // Level label formatter: 'SeniorHigh' → 'SENIOR HIGH'
+            const fmtLevel = l => l ? l.replace(/([A-Z])/g, ' $1').trim().toUpperCase() : ''
+
+            return (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontFamily: 'var(--font-disp)', fontSize: 15, fontWeight: 700 }}>
+                    {selectedMonth} — {crew?.name}
+                  </span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', marginLeft: 'auto' }}>
+                    {overviewWorkers.length} workers
+                  </span>
+                </div>
+
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11, minWidth: '100%' }}>
+                    <thead>
+                      {/* Name row */}
+                      <tr>
+                        <th style={{
+                          padding: '8px 12px', textAlign: 'left', background: 'var(--surface2)',
+                          borderBottom: '1px solid var(--border2)', borderRight: '2px solid var(--border2)',
+                          minWidth: 80, position: 'sticky', left: 0, zIndex: 3, fontWeight: 700, fontSize: 10, color: 'var(--text2)'
+                        }}>DATE</th>
+                        {overviewWorkers.map(w => (
+                          <th key={w.id} style={{
+                            padding: '6px 8px', background: 'var(--surface2)',
+                            borderBottom: '1px solid var(--border)', minWidth: 110,
+                            textAlign: 'center', fontWeight: 700, fontSize: 10
+                          }}>
+                            <div style={{ color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 100 }}>{w.name}</div>
+                            {w.workerType === 'commission' && w.level && (
+                              <div style={{
+                                fontSize: 9, fontWeight: 800, letterSpacing: 0.5, marginTop: 2,
+                                color: LEVEL_COLOR[w.level] || '#888'
+                              }}>{fmtLevel(w.level)}</div>
+                            )}
+                            {w.workerType === 'fixed' && (
+                              <div style={{ fontSize: 9, color: '#d97706', fontWeight: 700, marginTop: 2 }}>FIXED</div>
+                            )}
+                            {w.workerType === 'daily' && (
+                              <div style={{ fontSize: 9, color: '#2563eb', fontWeight: 700, marginTop: 2 }}>DAILY</div>
+                            )}
+                          </th>
+                        ))}
+                        <th style={{
+                          padding: '8px 10px', background: 'rgba(22,163,74,.12)',
+                          borderBottom: '2px solid var(--border2)', borderLeft: '2px solid var(--border2)',
+                          minWidth: 90, textAlign: 'right', fontWeight: 800, fontSize: 10,
+                          color: 'var(--accent)', position: 'sticky', right: 0, zIndex: 3
+                        }}>CREW TOTAL</th>
                       </tr>
-                    )
-                    return (
-                      <tr key={date}
-                        onClick={() => setSelectedDate(date)}
-                        style={{
-                          cursor: 'pointer',
-                          background: date === selectedDate ? 'rgba(22,163,74,.1)' : 'transparent',
-                          borderBottom: '1px solid var(--border)'
-                        }}>
+                    </thead>
+
+                    <tbody>
+                      {allDates.map((date, idx) => {
+                        const off = isDayOff(daysOff, date, selectedCrew)
+                        const hasData = crewHasUnitsOnDay(selectedCrew, date, daily, products)
+                        const isSelected = date === selectedDate
+                        const isToday = date === today
+                        const dayTotal = hasData && !off
+                          ? overviewWorkers.reduce((a, w) => {
+                              const e = getWorkerDayEarning(w.id, date)
+                              return a + (e || 0)
+                            }, 0)
+                          : 0
+
+                        return (
+                          <tr key={date}
+                            onClick={() => setSelectedDate(date)}
+                            style={{
+                              cursor: 'pointer',
+                              background: isSelected ? 'rgba(22,163,74,.08)' : off ? 'rgba(220,38,38,.03)' : idx % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.015)',
+                              borderBottom: `1px solid var(--border)`,
+                              borderTop: isToday ? '2px solid #6366f1' : undefined,
+                            }}>
+                            {/* Date cell — sticky */}
+                            <td style={{
+                              padding: '5px 12px', fontWeight: isSelected ? 700 : 400,
+                              color: off ? 'var(--danger)' : isToday ? '#6366f1' : 'var(--text)',
+                              background: isSelected ? 'rgba(22,163,74,.12)' : off ? 'rgba(220,38,38,.04)' : 'var(--surface)',
+                              borderRight: '2px solid var(--border2)',
+                              position: 'sticky', left: 0, zIndex: 1,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {date.slice(5).replace('-', '-')}
+                              {off && <span style={{ marginLeft: 4, fontSize: 9, color: 'var(--danger)' }}>OFF</span>}
+                              {isToday && <span style={{ marginLeft: 4, fontSize: 9, color: '#6366f1' }}>TODAY</span>}
+                            </td>
+
+                            {/* Worker earnings cells */}
+                            {overviewWorkers.map(w => {
+                              if (off || !hasData) return (
+                                <td key={w.id} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--text3)' }}>—</td>
+                              )
+                              const f = getDayFraction(date, w.id, absent, dayFraction)
+                              const earning = getWorkerDayEarning(w.id, date)
+                              return (
+                                <td key={w.id} style={{ padding: '5px 8px', textAlign: 'right' }}>
+                                  {f === 0
+                                    ? <span style={{ color: 'var(--danger)', fontSize: 10 }}>✕</span>
+                                    : earning != null
+                                      ? <span style={{ color: 'var(--text)', fontWeight: 500 }}>{fmt(Math.round(earning))}</span>
+                                      : <span style={{ color: 'var(--text3)' }}>—</span>
+                                  }
+                                  {f === 0.5 && <span style={{ color: '#d97706', fontSize: 9, marginLeft: 2 }}>½</span>}
+                                </td>
+                              )
+                            })}
+
+                            {/* Crew total cell — sticky right */}
+                            <td style={{
+                              padding: '5px 10px', textAlign: 'right', fontWeight: 700,
+                              color: dayTotal > 0 ? 'var(--accent)' : 'var(--text3)',
+                              background: dayTotal > 0 ? 'rgba(22,163,74,.05)' : 'var(--surface)',
+                              borderLeft: '2px solid var(--border2)',
+                              position: 'sticky', right: 0, zIndex: 1
+                            }}>
+                              {dayTotal > 0 ? fmt(Math.round(dayTotal)) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+
+                    <tfoot>
+                      {/* GROSS EARNINGS row */}
+                      <tr style={{ background: 'rgba(22,163,74,.07)', borderTop: '2px solid var(--border2)' }}>
                         <td style={{
-                          padding: '4px 10px', fontWeight: date === selectedDate ? 700 : 400,
-                          outline: date === selectedDate ? '2px solid var(--accent)' : 'none',
-                          outlineOffset: -1, color: 'var(--text)'
-                        }}>{date.slice(5)}</td>
-                        {overviewWorkers.map(w => {
-                          const earning = getWorkerDayEarning(w.id, date)
-                          const f = getDayFraction(date, w.id, absent, dayFraction)
+                          padding: '7px 12px', fontWeight: 800, fontSize: 10, letterSpacing: 1,
+                          color: 'var(--text2)', background: 'var(--surface2)',
+                          borderRight: '2px solid var(--border2)', position: 'sticky', left: 0, zIndex: 1
+                        }}>GROSS EARNINGS</td>
+                        {workerStats.map(({ w, gross }) => (
+                          <td key={w.id} style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>
+                            {fmt(Math.round(gross))}
+                          </td>
+                        ))}
+                        <td style={{
+                          padding: '7px 10px', textAlign: 'right', fontWeight: 800,
+                          color: 'var(--accent)', background: 'rgba(22,163,74,.12)',
+                          borderLeft: '2px solid var(--border2)', position: 'sticky', right: 0, zIndex: 1
+                        }}>
+                          {fmt(Math.round(workerStats.reduce((a, s) => a + s.gross, 0)))}
+                        </td>
+                      </tr>
+
+                      {/* NET SALARY row */}
+                      <tr style={{ background: 'rgba(22,163,74,.15)' }}>
+                        <td style={{
+                          padding: '7px 12px', fontWeight: 800, fontSize: 10, letterSpacing: 1,
+                          color: '#fff', background: '#16a34a',
+                          borderRight: '2px solid var(--border2)', position: 'sticky', left: 0, zIndex: 1
+                        }}>NET SALARY</td>
+                        {workerStats.map(({ w, net }) => (
+                          <td key={w.id} style={{
+                            padding: '7px 8px', textAlign: 'right', fontWeight: 700,
+                            color: net >= 0 ? 'var(--text)' : 'var(--danger)',
+                            background: 'rgba(22,163,74,.1)'
+                          }}>
+                            {fmt(Math.round(net))}
+                          </td>
+                        ))}
+                        <td style={{
+                          padding: '7px 10px', textAlign: 'right', fontWeight: 800,
+                          color: '#fff', background: '#16a34a',
+                          borderLeft: '2px solid var(--border2)', position: 'sticky', right: 0, zIndex: 1
+                        }}>
+                          {fmt(Math.round(workerStats.reduce((a, s) => a + s.net, 0)))}
+                        </td>
+                      </tr>
+
+                      {/* DAYS WORKED row */}
+                      <tr style={{ background: 'var(--surface2)' }}>
+                        <td style={{
+                          padding: '6px 12px', fontWeight: 700, fontSize: 10, letterSpacing: 1,
+                          color: 'var(--text2)', background: 'var(--surface2)',
+                          borderRight: '2px solid var(--border2)', position: 'sticky', left: 0, zIndex: 1
+                        }}>DAYS WORKED</td>
+                        {workerStats.map(({ w, daysWorked, totalWorkingDays }) => {
+                          const pct = totalWorkingDays > 0 ? daysWorked / totalWorkingDays : 0
+                          const color = pct === 1 ? 'var(--accent)' : pct >= 0.8 ? '#d97706' : 'var(--danger)'
                           return (
-                            <td key={w.id} style={{ padding: '4px 8px', textAlign: 'right', color: f === 0 ? 'var(--danger)' : earning != null ? 'var(--text)' : 'var(--text2)' }}>
-                              {f === 0
-                                ? <span style={{ textDecoration: 'line-through', color: 'var(--danger)', fontSize: 10 }}>absent</span>
-                                : earning != null ? fmt(Math.round(earning)) : '—'
-                              }
+                            <td key={w.id} style={{ padding: '6px 8px', textAlign: 'right' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                background: pct === 1 ? 'rgba(22,163,74,.12)' : pct >= 0.8 ? 'rgba(217,119,6,.12)' : 'rgba(220,38,38,.1)',
+                                color,
+                                borderRadius: 20, padding: '2px 8px',
+                                fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700,
+                                border: `1px solid ${color}44`
+                              }}>
+                                {Math.round(daysWorked * 2) / 2}/{totalWorkingDays}
+                              </span>
                             </td>
                           )
                         })}
+                        <td style={{
+                          padding: '6px 10px', textAlign: 'right',
+                          background: 'var(--surface2)',
+                          borderLeft: '2px solid var(--border2)', position: 'sticky', right: 0, zIndex: 1
+                        }} />
                       </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
-                    <td style={{ padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>GROSS</td>
-                    {overviewWorkers.map(w => {
-                      const gross = allDates.reduce((a, date) => {
-                        const e = getWorkerDayEarning(w.id, date)
-                        return a + (e || 0)
-                      }, 0)
-                      return <td key={w.id} style={{ padding: '7px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)' }}>{fmt(Math.round(gross))}</td>
-                    })}
-                  </tr>
-                  <tr style={{ background: 'var(--surface2)' }}>
-                    <td style={{ padding: '5px 10px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)' }}>DAYS</td>
-                    {overviewWorkers.map(w => {
-                      const days = allDates.reduce((a, date) => {
-                        if (isDayOff(daysOff, date, selectedCrew)) return a
-                        if (!crewHasUnitsOnDay(selectedCrew, date, daily, products)) return a
-                        return a + getDayFraction(date, w.id, absent, dayFraction)
-                      }, 0)
-                      return <td key={w.id} style={{ padding: '5px 8px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)' }}>{Math.round(days * 2) / 2}</td>
-                    })}
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
         </>
       )}
     </div>
