@@ -303,18 +303,18 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
         const weekDates = getWeekDates(anchor).filter(d => allDates.includes(d))
         const weekWorkers = workers.filter(w => w.crewId === selectedCrew && !w.inactive)
 
-        // Prev/next: check if there are earlier/later month dates outside this week
-        const canGoPrev = weekDates[0] > firstOfMonth
-        const canGoNext = weekDates[weekDates.length - 1] < lastOfMonth
+        // Prev/next: check if there are month dates before/after this week
+        const canGoPrev = anchor > firstOfMonth
+        const canGoNext = getWeekDates(anchor)[6] < lastOfMonth
 
         function shiftWeek(dir) {
-          // Move from the first/last date in current weekDates, not the raw bulkWeekStart
-          const ref = dir < 0 ? weekDates[0] : weekDates[weekDates.length - 1]
-          const d = new Date(ref + 'T00:00:00')
+          const d = new Date(anchor + 'T00:00:00')
           d.setDate(d.getDate() + dir * 7)
-          const target = d.toISOString().slice(0, 10)
-          const clamped = target < firstOfMonth ? firstOfMonth : target > lastOfMonth ? lastOfMonth : target
-          setBulkWeekStart(getWeekDates(clamped)[0])
+          let target = d.toISOString().slice(0, 10)
+          // Clamp inside the month
+          if (target < firstOfMonth) target = firstOfMonth
+          if (target > lastOfMonth) target = lastOfMonth
+          setBulkWeekStart(target)
         }
 
         return (
