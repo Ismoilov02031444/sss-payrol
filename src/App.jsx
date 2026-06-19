@@ -8,15 +8,15 @@ import PayrollTab from './components/PayrollTab'
 import SetupTab from './components/SetupTab'
 import SummaryTab from './components/SummaryTab'
 import ArchiveTab from './components/ArchiveTab'
-import { Users, ClipboardList, DollarSign, Settings, BarChart3, Archive } from 'lucide-react'
+import { UserRound, CalendarDays, Banknote, SlidersHorizontal, TrendingUp, FolderArchive } from 'lucide-react'
 
 const TABS = [
-  { id: 'setup',   label: 'Setup',       icon: Settings },
-  { id: 'workers', label: 'Workers',     icon: Users },
-  { id: 'daily',   label: 'Daily Input', icon: ClipboardList },
-  { id: 'payroll', label: 'Payroll',     icon: DollarSign },
-  { id: 'summary', label: 'Summary',     icon: BarChart3 },
-  { id: 'archive', label: 'Archive',     icon: Archive },
+  { id: 'setup',   label: 'Setup',       icon: SlidersHorizontal },
+  { id: 'workers', label: 'Workers',     icon: UserRound },
+  { id: 'daily',   label: 'Daily Input', icon: CalendarDays },
+  { id: 'payroll', label: 'Payroll',     icon: Banknote },
+  { id: 'summary', label: 'Summary',     icon: TrendingUp },
+  { id: 'archive', label: 'Archive',     icon: FolderArchive },
 ]
 
 const EMPTY_STATE = {
