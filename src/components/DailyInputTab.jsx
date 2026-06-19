@@ -294,14 +294,45 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
 
       {/* Edit Week (bulk attendance) Modal */}
       {weekModal && (() => {
-        const weekDates = currentWeekDates
+        // Only show dates that belong to the current month
+        const weekDates = getWeekDates(bulkWeekStart).filter(d => allDates.includes(d))
         const weekWorkers = workers.filter(w => w.crewId === selectedCrew && !w.inactive)
+
+        // Prev/next week navigation — clamped to month bounds
+        const firstOfMonth = allDates[0]
+        const lastOfMonth = allDates[allDates.length - 1]
+        const canGoPrev = bulkWeekStart > firstOfMonth
+        const canGoNext = getWeekDates(bulkWeekStart)[6] < lastOfMonth
+
+        function shiftWeek(dir) {
+          const d = new Date(bulkWeekStart + 'T00:00:00')
+          d.setDate(d.getDate() + dir * 7)
+          const clamped = d.toISOString().slice(0, 10)
+          setBulkWeekStart(getWeekDates(clamped < firstOfMonth ? firstOfMonth : clamped > lastOfMonth ? lastOfMonth : clamped)[0])
+        }
+
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: 'var(--surface)', border: '2px solid var(--border2)', borderRadius: 16, padding: 24, maxWidth: 780, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <div style={{ fontFamily: 'var(--font-disp)', fontSize: 18, letterSpacing: 1, flex: 1 }}>📅 Edit Week Attendance</div>
-                <button onClick={() => setWeekModal(false)} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text2)' }}>✕</button>
+                {/* Week navigator */}
+                <button onClick={() => shiftWeek(-1)} disabled={!canGoPrev} style={{
+                  background: canGoPrev ? 'var(--surface2)' : 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px',
+                  cursor: canGoPrev ? 'pointer' : 'default', color: canGoPrev ? 'var(--text)' : 'var(--text3)',
+                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700
+                }}>‹ Prev</button>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+                  {weekDates[0]?.slice(5)} – {weekDates[weekDates.length - 1]?.slice(5)}
+                </span>
+                <button onClick={() => shiftWeek(1)} disabled={!canGoNext} style={{
+                  background: canGoNext ? 'var(--surface2)' : 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px',
+                  cursor: canGoNext ? 'pointer' : 'default', color: canGoNext ? 'var(--text)' : 'var(--text3)',
+                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700
+                }}>Next ›</button>
+                <button onClick={() => setWeekModal(false)} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text2)', marginLeft: 4 }}>✕</button>
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
@@ -523,7 +554,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
               color: 'var(--accent)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px',
               fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
             }}>📦 Bulk Units</button>
-            <button onClick={() => setWeekModal(true)} style={{
+            <button onClick={() => { setBulkWeekStart(getWeekDates(selectedDate)[0]); setWeekModal(true) }} style={{
               background: 'var(--surface2)', border: '1px solid var(--border2)',
               color: 'var(--accent)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px',
               fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
