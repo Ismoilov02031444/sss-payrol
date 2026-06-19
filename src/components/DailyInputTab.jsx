@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly, safeNum, workerMonthDeductions, LEVEL_COLOR } from '../payroll'
+import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly, safeNum, workerMonthDeductions, LEVEL_COLOR, LEVEL_RANK } from '../payroll'
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 function uid() { return crypto.randomUUID() }
@@ -193,7 +193,18 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
   const distResult = crew ? crewDayEarning(selectedCrew, selectedDate, state) : null
 
   // Monthly overview data
-  const overviewWorkers = workers.filter(w => w.crewId === selectedCrew && !w.inactive)
+  const overviewWorkers = workers
+    .filter(w => w.crewId === selectedCrew && !w.inactive)
+    .sort((a, b) => {
+      // commission workers ordered by level rank (desc), then by name
+      // fixed/daily come after commission
+      const typeRank = t => t === 'commission' ? 0 : t === 'daily' ? 1 : 2
+      const tDiff = typeRank(a.workerType) - typeRank(b.workerType)
+      if (tDiff !== 0) return tDiff
+      const lDiff = (LEVEL_RANK[b.level] || 0) - (LEVEL_RANK[a.level] || 0)
+      if (lDiff !== 0) return lDiff
+      return (a.name || '').localeCompare(b.name || '')
+    })
 
   function getWorkerDayEarning(wid, date) {
     if (!crew) return null
