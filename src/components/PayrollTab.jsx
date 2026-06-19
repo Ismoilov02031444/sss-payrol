@@ -1,386 +1,424 @@
-import { useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Download, Archive, FileSpreadsheet, FileText } from 'lucide-react'
-import * as XLSX from 'xlsx'
-import { computeMonthlyPayroll } from '../payroll'
+import { useState, useMemo } from 'react'
+import { workerMonthlyEarning, workerMonthDeductions, crewProductionDays, workerDaysWorked, LEVEL_LABEL, monthDates, isDayOff, crewHasUnitsOnDay } from '../payroll'
 
-function fmt(n) { return new Intl.NumberFormat('uz-UZ').format(Math.round(n)) }
+function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
+function fmtDays(d) { return d == null ? '?' : (d % 1 === 0 ? d : d.toFixed(1)) }
+function uid() { return 'x' + Math.random().toString(36).slice(2, 10) }
 
-export default function PayrollTab({ state, updateState, selectedMonth, setSelectedMonth }) {
-  const [archiveModal, setArchiveModal] = useState(false)
-  const [deductModal, setDeductModal] = useState(null) // { worker }
+const CREW_COLORS = ['#16a34a','#2563eb','#d97706','#9333ea','#e11d48','#0891b2']
+function crewColor(crews, cid) {
+  const i = crews.findIndex(c => c.id === cid)
+  return CREW_COLORS[i % CREW_COLORS.length] || '#16a34a'
+}
 
-  function prevMonth() {
-    const [y, m] = selectedMonth.split('-').map(Number)
-    const d = new Date(y, m - 2, 1)
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
-  function nextMonth() {
-    const [y, m] = selectedMonth.split('-').map(Number)
-    const d = new Date(y, m, 1)
-    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-  }
+function DeductionModal({ wid, workers, selectedMonth, state, updateState, onClose, editDid }) {
+  const w = workers.find(x => x.id === wid)
+  const existing = editDid ? (state.deductions?.[wid] || []).find(d => d.id === editDid) : null
+  const [reason, setReason] = useState(existing?.reason || '')
+  const [amount, setAmount] = useState(existing?.amount || '')
+  const [month, setMonth] = useState(existing?.month || selectedMonth)
+  const [recurring, setRecurring] = useState(existing ? existing.month === null : false)
 
-  const [y, m] = selectedMonth.split('-')
-  const monthLabel = new Date(Number(y), Number(m) - 1, 1).toLocaleString('en', { month: 'long', year: 'numeric' })
-
-  const results = useMemo(() => computeMonthlyPayroll(state, selectedMonth), [state, selectedMonth])
-
-  const totalNet = results.reduce((s, r) => s + r.netPay, 0)
-  const totalGross = results.reduce((s, r) => s + r.totalEarned, 0)
-
-  // Group by crew
-  const byCrew = {}
-  for (const r of results) {
-    const cid = r.crew.id
-    if (!byCrew[cid]) byCrew[cid] = { crew: r.crew, rows: [] }
-    byCrew[cid].rows.push(r)
-  }
-
-  // ── Deduction management ───────────────────────────────────────────────────
-  function addDeduction(workerId, amount, reason) {
+  function submit() {
+    const amt = parseFloat(amount) || 0
+    if (amt <= 0) { alert('Enter an amount > 0'); return }
     updateState(s => {
-      const d = { ...(s.deductions || {}) }
-      if (!d[workerId]) d[workerId] = []
-      d[workerId] = [...d[workerId], { amount: Number(amount), reason, month: selectedMonth, id: 'x' + Math.random().toString(36).slice(2, 8) }]
-      return { ...s, deductions: d }
-    })
-  }
-  function removeDeduction(workerId, dedId) {
-    updateState(s => {
-      const d = { ...(s.deductions || {}) }
-      d[workerId] = (d[workerId] || []).filter(x => x.id !== dedId)
-      return { ...s, deductions: d }
-    })
-  }
-
-  // ── Excel export (4 types) ─────────────────────────────────────────────────
-  function exportExcel() {
-    const wb = XLSX.utils.book_new()
-
-    // 1. Summary sheet
-    const summaryData = [
-      [`SSS Payroll — ${monthLabel}`], [],
-      ['Total Workers', results.length],
-      ['Total Gross (so\'m)', Math.round(totalGross)],
-      ['Total Net (so\'m)', Math.round(totalNet)],
-    ]
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
-
-    // 2. All workers sheet
-    const headers = ['#', 'Name', 'Crew', 'Level', 'Days Worked', 'Gross (so\'m)', 'Tax (so\'m)', 'Avans (so\'m)', 'Net Pay (so\'m)']
-    const allRows = results.map((r, i) => [
-      i + 1, r.worker.name, r.crew.name, r.worker.level,
-      r.daysWorked, Math.round(r.totalEarned), Math.round(r.tax),
-      Math.round(r.monthAvans), Math.round(r.netPay),
-    ])
-    const wsAll = XLSX.utils.aoa_to_sheet([headers, ...allRows])
-    wsAll['!cols'] = [{ wch: 4 }, { wch: 24 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
-    XLSX.utils.book_append_sheet(wb, wsAll, 'All Workers')
-
-    // 3. Per-crew sheets
-    for (const { crew, rows } of Object.values(byCrew)) {
-      const ch = ['#', 'Name', 'Level', 'Days', 'Gross', 'Tax', 'Avans', 'Net Pay']
-      const cd = rows.map((r, i) => [i + 1, r.worker.name, r.worker.level, r.daysWorked,
-        Math.round(r.totalEarned), Math.round(r.tax), Math.round(r.monthAvans), Math.round(r.netPay)])
-      const crewNet = rows.reduce((s, r) => s + r.netPay, 0)
-      cd.push(['', 'TOTAL', '', '', '', '', '', Math.round(crewNet)])
-      const ws = XLSX.utils.aoa_to_sheet([ch, ...cd])
-      ws['!cols'] = [{ wch: 4 }, { wch: 24 }, { wch: 12 }, { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }]
-      XLSX.utils.book_append_sheet(wb, ws, crew.name.replace(/[:\\/?*[\]]/g, '').slice(0, 31))
-    }
-
-    // 4. Units production sheet (Date × Product per crew)
-    for (const { crew } of Object.values(byCrew)) {
-      const products = crew.products || []
-      if (!products.length) continue
-      const [yr, mn] = selectedMonth.split('-')
-      const totalDays = new Date(Number(yr), Number(mn), 0).getDate()
-      const prodHeaders = ['Date', ...products.map(p => p.name), 'Total Units', 'Total Earning']
-      const prodRows = []
-      for (let d = 1; d <= totalDays; d++) {
-        const date = `${yr}-${mn}-${String(d).padStart(2, '0')}`
-        const dayData = state.daily?.[date]?.[crew.id] || {}
-        const units = products.map(p => dayData[p.id] || 0)
-        const totalUnits = units.reduce((a, b) => a + b, 0)
-        const totalEarning = units.reduce((s, u, i) => s + u * (products[i].price || 0), 0)
-        if (totalUnits > 0) {
-          prodRows.push([date, ...units, totalUnits, Math.round(totalEarning)])
-        }
+      const deds = { ...(s.deductions || {}) }
+      if (!deds[wid]) deds[wid] = []
+      if (editDid) {
+        deds[wid] = deds[wid].map(d => d.id === editDid
+          ? { ...d, reason: reason || 'Deduction', amount: amt, month: recurring ? null : month }
+          : d)
+      } else {
+        deds[wid] = [...deds[wid], { id: uid(), reason: reason || 'Deduction', amount: amt, month: recurring ? null : month }]
       }
-      if (prodRows.length) {
-        const ws = XLSX.utils.aoa_to_sheet([prodHeaders, ...prodRows])
-        XLSX.utils.book_append_sheet(wb, ws, (crew.name + ' units').replace(/[:\\/?*[\]]/g, '').slice(0, 31))
-      }
-    }
-
-    XLSX.writeFile(wb, `SSS-Payroll-${selectedMonth}.xlsx`)
-  }
-
-  function exportCSV() {
-    const rows = [['Name', 'Crew', 'Level', 'Days', 'Gross', 'Tax', 'Avans', 'Net Pay']]
-    for (const r of results) {
-      rows.push([r.worker.name, r.crew.name, r.worker.level, r.daysWorked,
-        Math.round(r.totalEarned), Math.round(r.tax), Math.round(r.monthAvans), Math.round(r.netPay)])
-    }
-    const csv = rows.map(r => r.join(',')).join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = `SSS-Payroll-${selectedMonth}.csv`; a.click()
-  }
-
-  // ── Archive month ──────────────────────────────────────────────────────────
-  function archiveMonth() {
-    updateState(s => {
-      const archives = [...(s.archives || [])]
-      const existing = archives.findIndex(a => a.month === selectedMonth)
-      const snapshot = {
-        month: selectedMonth, archivedAt: Date.now(),
-        results: results.map(r => ({
-          name: r.worker.name, crew: r.crew.name, level: r.worker.level,
-          daysWorked: r.daysWorked, totalEarned: Math.round(r.totalEarned),
-          tax: Math.round(r.tax), monthAvans: Math.round(r.monthAvans), netPay: Math.round(r.netPay),
-        })),
-        summary: { workers: results.length, totalGross: Math.round(totalGross), totalNet: Math.round(totalNet) }
-      }
-      if (existing >= 0) archives[existing] = snapshot
-      else archives.push(snapshot)
-      return { ...s, archives }
+      return { ...s, deductions: deds }
     })
-    setArchiveModal(false)
-    alert(`${monthLabel} archived!`)
+    onClose()
   }
-
-  const archives = state.archives || []
-  const isArchived = archives.some(a => a.month === selectedMonth)
 
   return (
-    <div>
-      {/* Month selector + actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        <button className="btn btn-ghost btn-sm" onClick={prevMonth}><ChevronLeft size={14} /></button>
-        <span style={{ fontFamily: "'Space Grotesk',sans-serif", fontWeight: 600, fontSize: 16, minWidth: 160, textAlign: 'center' }}>{monthLabel}</span>
-        <button className="btn btn-ghost btn-sm" onClick={nextMonth}><ChevronRight size={14} /></button>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost btn-sm" onClick={exportCSV}><FileText size={13} /> CSV</button>
-          <button className="btn btn-ghost btn-sm" onClick={exportExcel} style={{ color: 'var(--success)' }}><FileSpreadsheet size={13} /> Excel</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setArchiveModal(true)} style={{ color: isArchived ? 'var(--warning)' : undefined }}>
-            <Archive size={13} /> {isArchived ? 'Re-Archive' : 'Archive Month'}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: 'var(--surface)', border: '2px solid var(--border2)', borderRadius: 14, padding: 28, minWidth: 340, maxWidth: 420, width: '90%' }}>
+        <div style={{ fontFamily: 'var(--font-disp)', fontSize: 16, letterSpacing: 1, marginBottom: 4 }}>{editDid ? '✎ Edit Deduction' : '+ 💸 Add Deduction'}</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>{w?.name}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>Reason</label>
+            <input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. Avans" style={{ width: '100%', boxSizing: 'border-box' }} autoFocus />
+          </div>
+          <div>
+            <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>Amount (so'm)</label>
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)} style={{ width: '100%', boxSizing: 'border-box', fontFamily: 'var(--font-mono)' }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input type="checkbox" id="ded-rec-p" checked={recurring} onChange={e => setRecurring(e.target.checked)} style={{ width: 16, height: 16 }} />
+            <label htmlFor="ded-rec-p" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, cursor: 'pointer' }}>↻ Recurring every month</label>
+          </div>
+          {!recurring && (
+            <div>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', display: 'block', marginBottom: 4 }}>Month</label>
+              <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ width: '100%', boxSizing: 'border-box' }} />
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button onClick={submit} style={{ flex: 1, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '10px 0', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>
+            {editDid ? '✎ Save Changes' : '💸 Add Deduction'}
           </button>
+          <button onClick={onClose} style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', padding: '10px 0', fontFamily: 'var(--font-mono)', fontSize: 12 }}>Cancel</button>
         </div>
       </div>
-
-      {/* Summary */}
-      <div className="summary-header mb-3">
-        <div className="summary-title">📊 Monthly Summary — {monthLabel}</div>
-        <div className="summary-metrics">
-          <div className="metric">
-            <div className="metric-val" style={{ color: 'var(--accent)' }}>{results.length}</div>
-            <div className="metric-lbl">Workers</div>
-          </div>
-          <div className="metric">
-            <div className="metric-val" style={{ color: 'var(--warning)' }}>{fmt(totalGross)}</div>
-            <div className="metric-lbl">Gross (so'm)</div>
-          </div>
-          <div className="metric">
-            <div className="metric-val" style={{ color: 'var(--success)' }}>{fmt(totalNet)}</div>
-            <div className="metric-lbl">Net Total (so'm)</div>
-          </div>
-          <div className="metric">
-            <div className="metric-val" style={{ color: 'var(--danger)' }}>
-              {fmt(results.reduce((s, r) => s + r.monthAvans, 0))}
-            </div>
-            <div className="metric-lbl">Total Avans</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Per crew tables */}
-      {Object.values(byCrew).map(({ crew, rows }) => {
-        const crewNet = rows.reduce((s, r) => s + r.netPay, 0)
-        return (
-          <div key={crew.id} style={{ marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div className="crew-dot" />{crew.name}
-                <span className="text-muted text-sm">({rows.length} workers)</span>
-              </div>
-              <span style={{ fontSize: 13, color: 'var(--success)', fontWeight: 600 }}>{fmt(crewNet)} so'm net</span>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th><th>Name</th><th>Level</th>
-                    <th className="td-num">Days</th>
-                    <th className="td-num">Gross</th>
-                    <th className="td-num">Tax</th>
-                    <th className="td-num">Avans</th>
-                    <th className="td-num">Net Pay</th>
-                    <th style={{ width: 36 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={r.worker.id} style={{ background: r.netPay < 0 ? 'rgba(239,68,68,0.05)' : undefined }}>
-                      <td className="text-muted">{i + 1}</td>
-                      <td className="fw-600">{r.worker.name}</td>
-                      <td><span className={`badge lvl-${r.worker.level}`}>{r.worker.level}</span></td>
-                      <td className="td-num">{r.daysWorked}</td>
-                      <td className="td-num">{fmt(r.totalEarned)}</td>
-                      <td className="td-num text-danger">{r.tax ? fmt(r.tax) : '—'}</td>
-                      <td className="td-num" style={{ color: 'var(--warning)' }}>
-                        {r.monthAvans ? fmt(r.monthAvans) : '—'}
-                      </td>
-                      <td className="td-num" style={{ color: r.netPay < 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>
-                        {fmt(r.netPay)}
-                      </td>
-                      <td style={{ padding: '3px 6px' }}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => setDeductModal(r)}
-                          style={{ padding: '2px 6px', fontSize: 10 }} title="Manage avans/deductions">+</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )
-      })}
-
-      {results.length === 0 && (
-        <div className="empty-state">
-          <div>No payroll data for this month.</div>
-          <div className="text-sm mt-2">Enter production data in Daily Input first.</div>
-        </div>
-      )}
-
-      {/* Archives */}
-      {archives.length > 0 && (
-        <div style={{ marginTop: 32 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Archive size={14} style={{ color: 'var(--warning)' }} /> Archived Months
-          </div>
-          {archives.map(a => {
-            const aLabel = new Date(a.month + '-01').toLocaleString('en', { month: 'long', year: 'numeric' })
-            return (
-              <div key={a.month} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', marginBottom: 6,
-              }}>
-                <div>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{aLabel}</span>
-                  <span style={{ color: 'var(--text3)', fontSize: 11, marginLeft: 10 }}>
-                    {a.summary.workers} workers · {fmt(a.summary.totalNet)} so'm net
-                  </span>
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => {
-                  const wb = XLSX.utils.book_new()
-                  const headers = ['#', 'Name', 'Crew', 'Level', 'Days', 'Gross', 'Tax', 'Avans', 'Net Pay']
-                  const rows2 = a.results.map((r, i) => [i + 1, r.name, r.crew, r.level, r.daysWorked, r.totalEarned, r.tax, r.monthAvans || 0, r.netPay])
-                  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows2])
-                  XLSX.utils.book_append_sheet(wb, ws, aLabel.slice(0, 31))
-                  XLSX.writeFile(wb, `SSS-Archive-${a.month}.xlsx`)
-                }} style={{ fontSize: 11 }}>
-                  <Download size={11} /> Download
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Archive modal */}
-      {archiveModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setArchiveModal(false)}>
-          <div className="modal" style={{ maxWidth: 360 }}>
-            <div className="modal-title">Archive {monthLabel}?
-              <button className="btn btn-ghost btn-sm" onClick={() => setArchiveModal(false)}>✕</button>
-            </div>
-            <div className="modal-form">
-              <p style={{ fontSize: 13, color: 'var(--text2)', margin: 0 }}>
-                Saves a frozen snapshot of <strong>{monthLabel}</strong> — {results.length} workers, {fmt(totalNet)} so'm net.
-                Archived months can be downloaded as Excel any time.
-              </p>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => setArchiveModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={archiveMonth}><Archive size={13} /> Archive</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Deduction modal */}
-      {deductModal && (
-        <DeductionModal
-          result={deductModal}
-          selectedMonth={selectedMonth}
-          state={state}
-          onAdd={(wid, amt, reason) => { addDeduction(wid, amt, reason); }}
-          onRemove={(wid, did) => { removeDeduction(wid, did); }}
-          onClose={() => setDeductModal(null)}
-        />
-      )}
     </div>
   )
 }
 
-function DeductionModal({ result, selectedMonth, state, onAdd, onRemove, onClose }) {
-  const [amount, setAmount] = useState('')
-  const [reason, setReason] = useState('')
-  const deductions = (state.deductions?.[result.worker.id] || []).filter(d => d.month === selectedMonth)
+export default function PayrollTab({ state, updateState, selectedMonth, setSelectedMonth }) {
+  const { crews = [], workers = [], deductions = {} } = state
+  const [searchQ, setSearchQ] = useState('')
+  const [openAllWorkers, setOpenAllWorkers] = useState(true)
+  const [openCrewId, setOpenCrewId] = useState(null)
+  const [dedModal, setDedModal] = useState(null) // { wid, editDid }
+  const [archiveModal, setArchiveModal] = useState(false)
 
-  function add() {
-    if (!amount || !reason.trim()) return
-    onAdd(result.worker.id, amount, reason)
-    setAmount(''); setReason('')
+  function removeDeduction(wid, did) {
+    if (!confirm('Remove this deduction?')) return
+    updateState(s => {
+      const deds = { ...(s.deductions || {}) }
+      if (deds[wid]) deds[wid] = deds[wid].filter(d => d.id !== did)
+      return { ...s, deductions: deds }
+    })
+  }
+
+  const crewDaysMap = useMemo(() => {
+    const m = {}
+    crews.forEach(c => { m[c.id] = crewProductionDays(selectedMonth, c.id, state) })
+    return m
+  }, [crews, selectedMonth, state])
+
+  const results = useMemo(() => {
+    const activeWorkers = workers.filter(w => !w.inactive)
+    const entryResults = activeWorkers.map(w => {
+      const gross = workerMonthlyEarning(w.id, selectedMonth, state)
+      const daysWorked = (w.workerType === 'commission' || w.workerType === 'daily')
+        ? workerDaysWorked(w.id, selectedMonth, state) : null
+      const crew = crews.find(c => c.id === w.crewId)
+      return { ...w, gross, daysWorked, crewName: crew?.name || '' }
+    })
+
+    // Group by personId
+    const personMap = new Map()
+    entryResults.forEach(r => {
+      const pid = (r.personId && r.personId !== 'null') ? r.personId : r.id
+      if (!personMap.has(pid)) {
+        personMap.set(pid, { personId: pid, name: r.name, tax: r.taxAmount || 0, entries: [], totalGross: 0 })
+      }
+      const p = personMap.get(pid)
+      if (!p.entries.find(e => e.id === r.id)) { p.entries.push(r); p.totalGross += r.gross }
+    })
+
+    return [...personMap.values()].map(p => {
+      const wid = p.entries[0]?.id
+      const dedTotal = workerMonthDeductions(wid, selectedMonth, deductions)
+      return {
+        ...p,
+        gross: p.totalGross,
+        dedTotal,
+        net: p.totalGross - (p.tax || 0) - dedTotal,
+        isMultiCrew: p.entries.length > 1,
+        workerType: p.entries[0]?.workerType || 'commission',
+        level: p.entries[0]?.level || '',
+        daysWorked: p.entries.length === 1 ? (p.entries[0]?.daysWorked ?? null) : null,
+        crewName: p.entries.length === 1 ? p.entries[0].crewName : 'Multiple Crews',
+        crewId: p.entries.length === 1 ? p.entries[0].crewId : null,
+        id: wid,
+      }
+    })
+  }, [workers, crews, selectedMonth, state, deductions])
+
+  const sq = searchQ.toLowerCase()
+  const filtered = sq ? results.filter(r => r.name.toLowerCase().includes(sq)) : results
+  const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+
+  const totalGross = sorted.reduce((a, r) => a + r.gross, 0)
+  const totalTax = sorted.reduce((a, r) => a + (r.tax || 0), 0)
+  const totalDed = sorted.reduce((a, r) => a + (r.dedTotal || 0), 0)
+  const totalNet = sorted.reduce((a, r) => a + r.net, 0)
+  const anyTax = sorted.some(r => r.tax > 0)
+
+  function doArchive() {
+    const entry = {
+      id: uid(),
+      month: selectedMonth,
+      archivedAt: new Date().toISOString(),
+      results: results.map(r => ({ name: r.name, crewName: r.crewName, gross: r.gross, tax: r.tax || 0, dedTotal: r.dedTotal || 0, net: r.net })),
+      totalNet, totalGross
+    }
+    updateState(s => ({ ...s, archive: [...(s.archive || []), entry] }))
+    setArchiveModal(false)
+    alert(`✅ ${selectedMonth} archived!`)
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 400 }}>
-        <div className="modal-title">
-          Avans/Deductions — {result.worker.name}
-          <button className="btn btn-ghost btn-sm" onClick={onClose}>✕</button>
-        </div>
-        <div className="modal-form">
-          <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 10 }}>
-            Month: {selectedMonth} · Total avans: {new Intl.NumberFormat().format(result.monthAvans)} so'm
-          </div>
-          {deductions.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {deductions.map(d => (
-                <div key={d.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  background: 'var(--surface2)', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)'
-                }}>
-                  <span style={{ flex: 1, fontSize: 12 }}>{d.reason}</span>
-                  <span style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 12 }}>−{new Intl.NumberFormat().format(d.amount)}</span>
-                  <button className="btn btn-danger btn-sm" onClick={() => onRemove(result.worker.id, d.id)} style={{ padding: '2px 6px', fontSize: 10 }}>✕</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="sep" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="input-group">
-              <label>Amount (so'm)</label>
-              <input className="input" type="number" min={0} value={amount}
-                onChange={e => setAmount(e.target.value)} placeholder="e.g. 500000" />
-            </div>
-            <div className="input-group">
-              <label>Reason</label>
-              <input className="input" value={reason}
-                onChange={e => setReason(e.target.value)} placeholder="e.g. Avans" />
-            </div>
-          </div>
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-ghost" onClick={onClose}>Close</button>
-          <button className="btn btn-primary" onClick={add}>Add Deduction</button>
-        </div>
+    <div>
+      {dedModal && (
+        <DeductionModal
+          wid={dedModal.wid} editDid={dedModal.editDid}
+          workers={workers} selectedMonth={selectedMonth}
+          state={state} updateState={updateState}
+          onClose={() => setDedModal(null)}
+        />
+      )}
+
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>⊕ Payroll</h2>
+        <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)}
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 13, padding: '6px 10px' }} />
+        <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="🔍 Search workers…"
+          style={{ flex: 1, minWidth: 140, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
+        {searchQ && <button onClick={() => setSearchQ('')} style={{ background: 'transparent', border: 'none', color: 'var(--text2)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+        <button onClick={() => setArchiveModal(true)} style={{
+          background: 'rgba(22,163,74,.08)', border: '1px solid var(--border2)',
+          color: 'var(--accent)', borderRadius: 8, cursor: 'pointer',
+          padding: '7px 14px', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
+        }}>🗂 Archive Month</button>
       </div>
+
+      {/* Factory net badge */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+        padding: '10px 16px', background: 'var(--accent)', borderRadius: 10, marginBottom: 16,
+        fontFamily: 'var(--font-mono)', color: '#fff'
+      }}>
+        <span style={{ fontSize: 12, opacity: .8 }}>
+          {sq ? `${sorted.length} found ·` : `${sorted.length} workers ·`} {selectedMonth}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 15, marginLeft: 'auto' }}>
+          FACTORY NET: {fmt(Math.round(totalNet))} SO'M
+        </span>
+      </div>
+
+      {/* All Workers accordion */}
+      <div style={{
+        border: `2px solid ${openAllWorkers ? 'var(--accent)' : 'var(--border)'}`,
+        borderRadius: 12, marginBottom: 20, overflow: 'hidden', boxShadow: 'var(--shadow)'
+      }}>
+        <div onClick={() => setOpenAllWorkers(v => !v)} style={{
+          display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
+          background: openAllWorkers ? 'var(--accent)' : 'var(--surface2)',
+          cursor: 'pointer', userSelect: 'none'
+        }}>
+          <span style={{ color: openAllWorkers ? '#fff' : 'var(--accent)', fontSize: 18, transform: openAllWorkers ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>›</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'var(--font-disp)', fontSize: 17, letterSpacing: 2, color: openAllWorkers ? '#fff' : 'var(--text)' }}>
+              🏭 All Workers — {selectedMonth}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: openAllWorkers ? 'rgba(255,255,255,.7)' : 'var(--text2)', marginTop: 2 }}>
+              {sorted.length} workers · alphabetical
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+            <span style={{ color: openAllWorkers ? 'rgba(255,255,255,.8)' : 'var(--accent2)' }}>gross {fmt(Math.round(totalGross))}</span>
+            {anyTax && <span style={{ color: openAllWorkers ? 'rgba(255,180,180,.9)' : 'var(--danger)' }}>({fmt(Math.round(totalTax))})</span>}
+            <span style={{ background: openAllWorkers ? 'rgba(255,255,255,.2)' : 'var(--accent)', color: '#fff', borderRadius: 20, padding: '3px 12px', fontWeight: 700 }}>{fmt(Math.round(totalNet))}</span>
+          </div>
+        </div>
+
+        {openAllWorkers && (
+          <div style={{ padding: 16, background: 'var(--surface)', borderTop: '1px solid var(--border2)', overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: 'var(--surface2)' }}>
+                  <th style={{ padding: '7px 8px', textAlign: 'center', width: 32, color: 'var(--text2)', fontWeight: 700 }}>#</th>
+                  <th style={{ padding: '7px 10px', textAlign: 'left', color: 'var(--text2)', fontWeight: 700 }}>Worker</th>
+                  <th style={{ padding: '7px 8px', color: 'var(--text2)', fontWeight: 700 }}>Crew</th>
+                  <th style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text2)', fontWeight: 700 }}>Days</th>
+                  <th style={{ padding: '7px 10px', textAlign: 'right', background: 'rgba(22,163,74,.08)', color: 'var(--accent2)', fontWeight: 700 }}>Gross</th>
+                  <th style={{ padding: '7px 10px', textAlign: 'right', background: 'rgba(220,38,38,.06)', color: 'var(--danger)', fontWeight: 700 }}>Tax</th>
+                  <th style={{ padding: '7px 10px', textAlign: 'right', background: 'rgba(220,38,38,.06)', color: 'var(--danger)', fontWeight: 700 }}>Avans</th>
+                  <th style={{ padding: '7px 10px', textAlign: 'right', background: 'var(--accent)', color: '#fff', fontWeight: 700 }}>NET SALARY</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r, i) => {
+                  const wDeds = (deductions?.[r.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+                  const crewDays = r.crewId ? (crewDaysMap[r.crewId] ?? '?') : '?'
+                  return (
+                    <tr key={r.personId} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text2)' }}>{i + 1}</td>
+                      <td style={{ padding: '7px 10px', fontWeight: 700 }}>
+                        {r.name}
+                        {r.isMultiCrew && <span style={{ marginLeft: 6, background: 'rgba(22,163,74,.08)', color: 'var(--accent)', border: '1px solid rgba(22,163,74,.2)', borderRadius: 10, padding: '1px 7px', fontSize: 9 }}>⬡ multi</span>}
+                      </td>
+                      <td style={{ padding: '7px 8px', color: 'var(--text2)' }}>{r.crewName}</td>
+                      <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                        {r.isMultiCrew
+                          ? <span style={{ color: 'var(--accent)', fontSize: 10 }}>{r.entries.length} crews</span>
+                          : r.workerType === 'commission' || r.workerType === 'daily'
+                            ? <span style={{
+                                background: r.daysWorked === 0 ? 'rgba(220,38,38,.08)' : 'rgba(22,163,74,.08)',
+                                color: r.daysWorked === 0 ? 'var(--danger)' : 'var(--accent)',
+                                border: `1px solid ${r.daysWorked === 0 ? 'rgba(220,38,38,.2)' : 'rgba(22,163,74,.2)'}`,
+                                borderRadius: 6, padding: '2px 7px', fontSize: 11, fontFamily: 'var(--font-mono)'
+                              }}>{fmtDays(r.daysWorked)}/{crewDays}</span>
+                            : <span style={{ color: '#d97706', fontSize: 11 }}>fixed</span>
+                        }
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: r.workerType === 'fixed' ? '#d97706' : r.workerType === 'daily' ? '#2563eb' : 'var(--accent)', fontWeight: 700 }}>{fmt(Math.round(r.gross))}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', color: 'var(--danger)' }}>{r.tax > 0 ? `(${fmt(r.tax)})` : '—'}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap' }}>
+                          {wDeds.map(d => (
+                            <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              <span style={{ color: 'var(--danger)', fontWeight: 700, fontSize: 11 }}>({fmt(d.amount)})</span>
+                              {d.month === null && <span style={{ fontSize: 9, color: '#2563eb' }}>↻</span>}
+                              <button onClick={() => setDedModal({ wid: r.id, editDid: d.id })} style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 11, padding: '0 2px' }}>✎</button>
+                              <button onClick={() => removeDeduction(r.id, d.id)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 11, padding: '0 2px' }}>✕</button>
+                            </span>
+                          ))}
+                          <button onClick={() => setDedModal({ wid: r.id, editDid: null })} style={{
+                            background: 'rgba(220,53,69,.08)', border: '1px solid rgba(220,53,69,.25)',
+                            color: 'var(--danger)', padding: '2px 8px', borderRadius: 5,
+                            cursor: 'pointer', fontSize: 11, whiteSpace: 'nowrap'
+                          }}>+ 💸</button>
+                        </div>
+                      </td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: 'var(--accent)' }}>{fmt(Math.round(r.net))}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                  <td colSpan={4} style={{ padding: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>TOTAL — {sorted.length} workers</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(Math.round(totalGross))}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--danger)' }}>{anyTax ? `(${fmt(Math.round(totalTax))})` : '—'}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--danger)' }}>{totalDed > 0 ? `(${fmt(Math.round(totalDed))})` : '—'}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 14, color: 'var(--accent)' }}>{fmt(Math.round(totalNet))}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Per-crew accordions */}
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', letterSpacing: 1, marginBottom: 10 }}>▼ BREAKDOWN BY CREW — click to expand</div>
+      {crews.map(crew => {
+        const cw = results.filter(r => r.crewId === crew.id)
+        if (!cw.length) return null
+        const isOpen = openCrewId === crew.id
+        const col = crewColor(crews, crew.id)
+        const crewGross = cw.reduce((a, r) => a + r.gross, 0)
+        const crewTax = cw.reduce((a, r) => a + (r.tax || 0), 0)
+        const crewNet = cw.reduce((a, r) => a + r.net, 0)
+        const thisDays = crewDaysMap[crew.id] ?? '?'
+        const commR = cw.filter(r => r.workerType === 'commission')
+        const fixedR = cw.filter(r => r.workerType === 'fixed')
+        const dailyR = cw.filter(r => r.workerType === 'daily')
+
+        const makeRows = (arr, showDays) => arr.map(r => (
+          <tr key={r.personId} style={{ borderBottom: '1px solid var(--border)' }}>
+            <td style={{ padding: '7px 10px', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.name}</td>
+            <td style={{ padding: '7px 8px', fontFamily: 'var(--font-mono)', fontSize: 11, color: r.workerType === 'fixed' ? '#d97706' : r.workerType === 'daily' ? '#2563eb' : 'var(--accent)' }}>
+              {r.workerType === 'fixed' ? '★ FIXED' : r.workerType === 'daily' ? '📅 DAILY' : LEVEL_LABEL[r.level] || r.level}
+            </td>
+            {showDays
+              ? <td style={{ padding: '7px 8px', textAlign: 'center' }}>
+                  <span style={{ background: 'rgba(22,163,74,.08)', color: 'var(--accent)', border: '1px solid rgba(22,163,74,.2)', borderRadius: 6, padding: '2px 7px', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+                    {fmtDays(r.daysWorked)}/{thisDays}
+                  </span>
+                </td>
+              : <td style={{ padding: '7px 8px', textAlign: 'center', color: 'var(--text2)', fontSize: 11 }}>—</td>
+            }
+            <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 12, color: r.workerType === 'fixed' ? '#d97706' : r.workerType === 'daily' ? '#2563eb' : 'var(--accent)' }}>{fmt(Math.round(r.gross))}</td>
+            <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--danger)' }}>{r.tax > 0 ? `(${fmt(r.tax)})` : '—'}</td>
+            <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--accent)' }}>{fmt(Math.round(r.net))}</td>
+          </tr>
+        ))
+
+        return (
+          <div key={crew.id} style={{
+            border: `2px solid ${isOpen ? col : col + '55'}`,
+            borderLeft: `4px solid ${col}`, borderRadius: 12, marginBottom: 10,
+            overflow: 'hidden', boxShadow: 'var(--shadow)', transition: 'all .2s'
+          }}>
+            <div onClick={() => setOpenCrewId(isOpen ? null : crew.id)} style={{
+              display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
+              background: isOpen ? col : 'var(--surface2)', cursor: 'pointer', userSelect: 'none'
+            }}>
+              <span style={{ color: isOpen ? '#fff' : col, fontSize: 18, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>›</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-disp)', fontSize: 17, letterSpacing: 2, color: isOpen ? '#fff' : 'var(--text)' }}>{crew.name}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: isOpen ? 'rgba(255,255,255,.7)' : 'var(--text2)', marginTop: 2 }}>
+                  {cw.length} workers · Net: {fmt(Math.round(crewNet))} so'm
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                <span style={{ color: isOpen ? 'rgba(255,255,255,.8)' : col }}>gross {fmt(Math.round(crewGross))}</span>
+                {crewTax > 0 && <span style={{ color: isOpen ? 'rgba(255,180,180,.9)' : 'var(--danger)' }}>({fmt(Math.round(crewTax))})</span>}
+                <span style={{ background: isOpen ? 'rgba(255,255,255,.2)' : col, color: '#fff', borderRadius: 20, padding: '3px 12px', fontWeight: 700 }}>{fmt(Math.round(crewNet))}</span>
+              </div>
+            </div>
+            {isOpen && (
+              <div style={{ padding: 16, background: 'var(--surface)', borderTop: `1px solid ${col}33`, overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface2)' }}>
+                      <th style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--text2)', fontWeight: 700 }}>Worker</th>
+                      <th style={{ padding: '6px 8px', color: 'var(--text2)', fontWeight: 700 }}>Level</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--text2)', fontWeight: 700 }}>Days</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', background: 'rgba(22,163,74,.08)', color: 'var(--accent2)', fontWeight: 700 }}>Gross</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', background: 'rgba(220,38,38,.06)', color: 'var(--danger)', fontWeight: 700 }}>Tax</th>
+                      <th style={{ padding: '6px 10px', textAlign: 'right', background: 'var(--accent)', color: '#fff', fontWeight: 700 }}>NET</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commR.length > 0 && <>
+                      <tr><td colSpan={6} style={{ padding: '5px 10px', background: 'rgba(22,163,74,.06)', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)', letterSpacing: 1 }}>◆ Commission</td></tr>
+                      {makeRows(commR, true)}
+                    </>}
+                    {dailyR.length > 0 && <>
+                      <tr><td colSpan={6} style={{ padding: '5px 10px', background: 'rgba(59,130,246,.06)', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#2563eb', letterSpacing: 1 }}>📅 Daily Rate</td></tr>
+                      {makeRows(dailyR, true)}
+                    </>}
+                    {fixedR.length > 0 && <>
+                      <tr><td colSpan={6} style={{ padding: '5px 10px', background: 'rgba(230,126,34,.06)', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#d97706', letterSpacing: 1 }}>★ Fixed</td></tr>
+                      {makeRows(fixedR, false)}
+                    </>}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--surface2)', fontWeight: 700 }}>
+                      <td colSpan={3} style={{ padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>CREW TOTAL</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(Math.round(crewGross))}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--danger)' }}>{crewTax > 0 ? `(${fmt(Math.round(crewTax))})` : '—'}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13 }}>{fmt(Math.round(crewNet))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {/* Archive confirmation modal */}
+      {archiveModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'var(--surface)', border: '2px solid var(--border2)', borderRadius: 14, padding: 28, minWidth: 320, maxWidth: 400, width: '90%' }}>
+            <div style={{ fontFamily: 'var(--font-disp)', fontSize: 18, letterSpacing: 1, marginBottom: 8 }}>🗂 Archive {selectedMonth}?</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)', marginBottom: 20, lineHeight: 1.5 }}>
+              This will save a snapshot of the current payroll for <strong>{selectedMonth}</strong> to the archive.<br />
+              Factory net: <strong>{fmt(Math.round(totalNet))} so'm</strong>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={doArchive} style={{ flex: 1, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', padding: '10px 0', fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>✅ Yes, Archive</button>
+              <button onClick={() => setArchiveModal(false)} style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', padding: '10px 0', fontFamily: 'var(--font-mono)', fontSize: 12 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

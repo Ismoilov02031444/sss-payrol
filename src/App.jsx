@@ -6,23 +6,24 @@ import WorkersTab from './components/WorkersTab'
 import DailyInputTab from './components/DailyInputTab'
 import PayrollTab from './components/PayrollTab'
 import SetupTab from './components/SetupTab'
-import {
-  Users, ClipboardList, DollarSign, Settings,
-  BarChart3
-} from 'lucide-react'
+import SummaryTab from './components/SummaryTab'
+import ArchiveTab from './components/ArchiveTab'
+import { Users, ClipboardList, DollarSign, Settings, BarChart3, Archive } from 'lucide-react'
 
 const TABS = [
-  { id: 'workers', label: 'Workers', icon: Users },
+  { id: 'setup',   label: 'Setup',       icon: Settings },
+  { id: 'workers', label: 'Workers',     icon: Users },
   { id: 'daily',   label: 'Daily Input', icon: ClipboardList },
-  { id: 'payroll', label: 'Payroll', icon: DollarSign },
-  { id: 'setup',   label: 'Setup', icon: Settings },
+  { id: 'payroll', label: 'Payroll',     icon: DollarSign },
+  { id: 'summary', label: 'Summary',     icon: BarChart3 },
+  { id: 'archive', label: 'Archive',     icon: Archive },
 ]
 
 const EMPTY_STATE = {
-  workers: [], crews: [],
+  workers: [], crews: [], products: [],
   daily: {}, absent: {}, dayFraction: {}, dayOverride: {},
   stickyOverride: {}, daysOff: {}, dayNotes: {}, deductions: {},
-  archive: [], _savedAt: 0, _lang: 'en',
+  archive: [], _savedAt: 0,
 }
 
 function scoreState(s) {
@@ -35,20 +36,48 @@ function scoreState(s) {
   return score
 }
 
+// Toast notification system
+let _toastId = 0
+function Toast({ toasts, setToasts }) {
+  return (
+    <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background: t.type === 'error' ? 'var(--danger)' : t.type === 'warning' ? '#d97706' : 'var(--accent)',
+          color: '#fff', padding: '10px 18px', borderRadius: 10,
+          fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600,
+          boxShadow: '0 4px 20px rgba(0,0,0,.25)', minWidth: 200,
+          animation: 'slideIn .2s ease-out'
+        }}>
+          {t.msg}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function App() {
-  const [session, setSession]     = useState(null)
+  const [session, setSession]       = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [state, setState]         = useState(EMPTY_STATE)
-  const [syncStatus, setSyncStatus] = useState('offline') // 'synced'|'syncing'|'offline'
+  const [state, setState]           = useState(EMPTY_STATE)
+  const [syncStatus, setSyncStatus] = useState('offline')
   const [onlineCount, setOnlineCount] = useState(1)
-  const [activeTab, setActiveTab] = useState('workers')
+  const [activeTab, setActiveTab]   = useState('workers')
   const [selectedMonth, setSelectedMonth] = useState(() => {
-    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
   })
-  const channelRef = useRef(null)
+  const [toasts, setToasts] = useState([])
+  const channelRef  = useRef(null)
   const pushTimerRef = useRef(null)
 
-  // ── Auth ─────────────────────────────────────────────────────────────────
+  function showToast(msg, type = 'success') {
+    const id = ++_toastId
+    setToasts(t => [...t, { id, msg, type }])
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000)
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session); setAuthLoading(false)
@@ -57,7 +86,7 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // ── Load state from Supabase ──────────────────────────────────────────────
+  // ── Load state from Supabase ─────────────────────────────────────────────
   const loadState = useCallback(async () => {
     if (!session) return
     setSyncStatus('syncing')
@@ -126,16 +155,12 @@ export default function App() {
         }
       })
 
-    return () => {
-      supabase.removeChannel(channelRef.current)
-    }
+    return () => { supabase.removeChannel(channelRef.current) }
   }, [session, loadState])
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (authLoading) return (
-    <div className="loading-screen">
-      <div className="spinner" />
-    </div>
+    <div className="loading-screen"><div className="spinner" /></div>
   )
 
   if (!session) return (
@@ -145,18 +170,14 @@ export default function App() {
     </>
   )
 
-  const tabProps = { state, updateState, selectedMonth, setSelectedMonth, session }
+  const tabProps = { state, updateState, selectedMonth, setSelectedMonth, session, showToast }
 
   return (
     <>
+      <style>{`@keyframes slideIn { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: none; } }`}</style>
       <div className="bg-canvas"><div className="grid-overlay"/><div className="orb3"/></div>
       <div className="app-shell">
-        <Header
-          session={session}
-          syncStatus={syncStatus}
-          onlineCount={onlineCount}
-          onReload={loadState}
-        />
+        <Header session={session} syncStatus={syncStatus} onlineCount={onlineCount} onReload={loadState} />
         <div className="nav-tabs">
           {TABS.map(t => (
             <button
@@ -169,13 +190,16 @@ export default function App() {
             </button>
           ))}
         </div>
-        <div className="main-content" style={{paddingTop: 16}}>
+        <div className="main-content" style={{ paddingTop: 16 }}>
+          {activeTab === 'setup'   && <SetupTab   {...tabProps} />}
           {activeTab === 'workers' && <WorkersTab {...tabProps} />}
           {activeTab === 'daily'   && <DailyInputTab {...tabProps} />}
           {activeTab === 'payroll' && <PayrollTab {...tabProps} />}
-          {activeTab === 'setup'   && <SetupTab {...tabProps} />}
+          {activeTab === 'summary' && <SummaryTab {...tabProps} />}
+          {activeTab === 'archive' && <ArchiveTab {...tabProps} />}
         </div>
       </div>
+      <Toast toasts={toasts} setToasts={setToasts} />
     </>
   )
 }
