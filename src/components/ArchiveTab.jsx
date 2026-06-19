@@ -2,9 +2,43 @@ import { useState } from 'react'
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 
+function downloadBackup(state) {
+  const backup = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    exportedBy: 'SSS Payroll',
+    data: state,
+  }
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `sss-payroll-backup-${new Date().toISOString().slice(0,10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function restoreBackup(file, updateState, onDone) {
+  const reader = new FileReader()
+  reader.onload = e => {
+    try {
+      const parsed = JSON.parse(e.target.result)
+      const data = parsed.data || parsed // support both wrapped and raw
+      if (!data.workers || !data.crews) throw new Error('Invalid backup file')
+      if (!confirm(`Restore backup from ${parsed.exportedAt?.slice(0,10) || 'unknown date'}?\n\nThis will REPLACE all current data.`)) return
+      updateState(() => data)
+      onDone('✅ Backup restored successfully')
+    } catch (err) {
+      onDone('❌ Invalid backup file: ' + err.message)
+    }
+  }
+  reader.readAsText(file)
+}
+
 export default function ArchiveTab({ state, updateState }) {
   const { archive = [] } = state
   const [expandedId, setExpandedId] = useState(null)
+  const [restoreMsg, setRestoreMsg] = useState('')
 
   function deleteEntry(id) {
     if (!confirm('Delete this archive entry? This cannot be undone.')) return
@@ -13,25 +47,83 @@ export default function ArchiveTab({ state, updateState }) {
 
   const sorted = [...archive].sort((a, b) => b.month.localeCompare(a.month))
 
-  if (sorted.length === 0) {
-    return (
-      <div>
-        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, marginBottom: 20 }}>🗂 Archive</h2>
-        <div style={{ textAlign: 'center', color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 13, marginTop: 40 }}>
-          No archived months yet. Use the "Archive Month" button in the Payroll tab.
-        </div>
-      </div>
-    )
-  }
+  const totalWorkers = state.workers?.length || 0
+  const totalCrews = state.crews?.length || 0
+  const dailyKeys = Object.keys(state.daily || {}).length
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>🗂 Archive</h2>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)' }}>{sorted.length} month{sorted.length !== 1 ? 's' : ''} archived</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text2)', flex: 1 }}>
+          {sorted.length} month{sorted.length !== 1 ? 's' : ''} archived
+        </span>
+
+        {/* Restore button */}
+        <label style={{
+          background: 'transparent', border: '1.5px solid var(--border2)',
+          color: 'var(--text2)', borderRadius: 8, cursor: 'pointer',
+          padding: '7px 14px', fontFamily: 'var(--font-mono)', fontSize: 12,
+          fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6
+        }}>
+          📥 Restore Backup
+          <input type="file" accept=".json" style={{ display: 'none' }}
+            onChange={e => {
+              const f = e.target.files?.[0]
+              if (f) restoreBackup(f, updateState, msg => { setRestoreMsg(msg); setTimeout(() => setRestoreMsg(''), 4000) })
+              e.target.value = ''
+            }}
+          />
+        </label>
+
+        {/* Download backup button */}
+        <button onClick={() => downloadBackup(state)} style={{
+          background: 'var(--accent)', border: 'none', color: '#fff',
+          borderRadius: 8, cursor: 'pointer', padding: '7px 16px',
+          fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
+          display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 2px 8px rgba(22,163,74,.3)'
+        }}>
+          💾 Download Backup
+        </button>
       </div>
 
-      {sorted.map(entry => {
+      {/* Backup stats */}
+      <div style={{
+        display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap'
+      }}>
+        {[
+          { label: 'Workers', value: totalWorkers },
+          { label: 'Crews', value: totalCrews },
+          { label: 'Daily records', value: dailyKeys },
+          { label: 'Archived months', value: sorted.length },
+        ].map(s => (
+          <div key={s.label} style={{
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '8px 16px', fontFamily: 'var(--font-mono)',
+            fontSize: 11, color: 'var(--text2)'
+          }}>
+            <span style={{ fontWeight: 700, fontSize: 16, color: 'var(--text1)', display: 'block' }}>{s.value}</span>
+            {s.label}
+          </div>
+        ))}
+      </div>
+
+      {restoreMsg && (
+        <div style={{
+          background: restoreMsg.startsWith('✅') ? 'rgba(34,197,94,.1)' : 'rgba(220,38,38,.1)',
+          border: `1px solid ${restoreMsg.startsWith('✅') ? 'rgba(34,197,94,.3)' : 'rgba(220,38,38,.3)'}`,
+          color: restoreMsg.startsWith('✅') ? 'var(--success)' : 'var(--danger)',
+          borderRadius: 8, padding: '10px 16px', marginBottom: 14,
+          fontFamily: 'var(--font-mono)', fontSize: 13
+        }}>{restoreMsg}</div>
+      )}
+
+      {sorted.length === 0 ? (
+        <div style={{ textAlign: 'center', color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 13, marginTop: 40 }}>
+          No archived months yet. Use the "Archive Month" button in the Payroll tab.
+        </div>
+      ) : sorted.map(entry => {
         const isOpen = expandedId === entry.id
         return (
           <div key={entry.id} style={{
