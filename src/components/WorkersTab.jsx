@@ -180,6 +180,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
   const [dedModal, setDedModal] = useState(null) // { wid, editDid }
   const [lvlModal, setLvlModal] = useState(null) // wid
   const [dragWid, setDragWid] = useState(null)
+  const [viewMode, setViewMode] = useState('crews') // 'all' | 'crews'
 
   function addWorker(crewId, workerType) {
     const personId = uid()
@@ -280,7 +281,149 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
           style={{ flex: 1, minWidth: 160, fontFamily: 'var(--font-mono)', fontSize: 12 }}
         />
         {searchQ && <button onClick={() => setSearchQ('')} style={{ background: 'transparent', border: 'none', color: 'var(--text2)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+        {/* View toggle */}
+        <div style={{ display: 'flex', border: '1px solid var(--border2)', borderRadius: 8, overflow: 'hidden' }}>
+          {[['all', '☰ All Workers'], ['crews', '◈ By Crew']].map(([mode, label]) => (
+            <button key={mode} onClick={() => setViewMode(mode)} style={{
+              padding: '6px 14px', border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, letterSpacing: .5,
+              background: viewMode === mode ? 'var(--accent)' : 'var(--surface2)',
+              color: viewMode === mode ? '#fff' : 'var(--text2)',
+              transition: 'all .15s'
+            }}>{label}</button>
+          ))}
+        </div>
       </div>
+
+      {/* ── ALL WORKERS flat list (like Payroll tab) ── */}
+      {viewMode === 'all' && (() => {
+        const activeWorkers = workers.filter(w => !w.inactive)
+        const filtered = sq
+          ? activeWorkers.filter(w => w.name.toLowerCase().includes(sq))
+          : activeWorkers
+        const sorted = [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+
+        return (
+          <div>
+            {/* Stats bar */}
+            <div style={{
+              background: 'var(--accent)', color: '#fff', borderRadius: 10,
+              padding: '10px 18px', marginBottom: 16,
+              display: 'flex', alignItems: 'center', gap: 24,
+              fontFamily: 'var(--font-mono)', fontSize: 12
+            }}>
+              <span style={{ fontWeight: 700, fontSize: 14 }}>👷 All Workers — {selectedMonth}</span>
+              <span>{sorted.length} workers · alphabetical</span>
+              <span style={{ marginLeft: 'auto' }}>
+                gross {fmt(Math.round(sorted.reduce((a, w) => a + workerMonthlyEarning(w.id, selectedMonth, state), 0)))} so'm
+              </span>
+            </div>
+
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface2)' }}>
+                    <th style={{ padding: '7px 10px', textAlign: 'center', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700, width: 36 }}>#</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'left', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>WORKER</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'left', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>CREW</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'center', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>TYPE</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'center', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>LEVEL / RATE</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>GROSS ({selectedMonth})</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>TAX</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'center', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>AVANS</th>
+                    <th style={{ padding: '7px 12px', textAlign: 'right', borderBottom: '2px solid var(--border2)', color: 'var(--text2)', fontWeight: 700 }}>NET</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((w, i) => {
+                    const crew = crews.find(c => c.id === w.crewId)
+                    const gross = workerMonthlyEarning(w.id, selectedMonth, state)
+                    const deds = workerMonthDeductions(w.id, selectedMonth, state)
+                    const tax = w.taxAmount || 0
+                    const net = gross - tax - deds
+                    const wDeds = (state.deductions?.[w.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+                    return (
+                      <tr key={w.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface2)' }}>
+                        <td style={{ padding: '7px 10px', textAlign: 'center', color: 'var(--text2)' }}>{i + 1}</td>
+                        <td style={{ padding: '7px 12px', fontWeight: 700 }}>
+                          <input
+                            value={w.name}
+                            onChange={e => updateWorker(w.id, 'name', e.target.value.toUpperCase())}
+                            style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, border: 'none', background: 'transparent', color: 'var(--text)', width: 160 }}
+                          />
+                        </td>
+                        <td style={{ padding: '7px 12px', fontWeight: 700, color: crewColor(crews, w.crewId) }}>{crew?.name || '—'}</td>
+                        <td style={{ padding: '7px 12px', textAlign: 'center' }}><TypeBadge type={w.workerType} /></td>
+                        <td style={{ padding: '7px 12px', textAlign: 'center' }}>
+                          {w.workerType === 'commission' && (
+                            <button onClick={() => setLvlModal(w.id)} style={{
+                              background: 'var(--surface)', border: '1px solid var(--border2)',
+                              borderRadius: 6, padding: '3px 8px', cursor: 'pointer',
+                              fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)',
+                              display: 'inline-flex', alignItems: 'center', gap: 4
+                            }}>
+                              <LevelBadge level={w.level} />
+                              <span style={{ fontSize: 10, color: 'var(--text2)' }}>▾</span>
+                            </button>
+                          )}
+                          {w.workerType === 'fixed' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                              <input type="number" value={w.fixedSalary || 0}
+                                onChange={e => updateWorker(w.id, 'fixedSalary', safeNum(e.target.value))}
+                                style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right' }} />
+                              <span style={{ fontSize: 10, color: 'var(--text2)' }}>so'm</span>
+                            </div>
+                          )}
+                          {w.workerType === 'daily' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                              <input type="number" value={w.dailyRate || 0}
+                                onChange={e => updateWorker(w.id, 'dailyRate', safeNum(e.target.value))}
+                                style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right', color: '#2563eb' }} />
+                              <span style={{ fontSize: 10, color: 'var(--text2)' }}>/day</span>
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '7px 12px', textAlign: 'right', color: 'var(--accent)', fontWeight: 700 }}>{fmt(Math.round(gross))}</td>
+                        <td style={{ padding: '7px 12px', textAlign: 'right' }}>
+                          <input type="number" value={w.taxAmount || 0}
+                            onChange={e => updateWorker(w.id, 'taxAmount', safeNum(e.target.value))}
+                            style={{ width: 80, fontFamily: 'var(--font-mono)', fontSize: 11, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ padding: '7px 12px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                            <button onClick={() => setDedModal({ wid: w.id, editDid: null })} style={{
+                              background: 'rgba(220,53,69,.07)', border: '1px solid rgba(220,53,69,.2)',
+                              color: 'var(--danger)', padding: '2px 7px', borderRadius: 5, cursor: 'pointer',
+                              fontFamily: 'var(--font-mono)', fontSize: 10
+                            }}>+ 💸</button>
+                            {wDeds.map(d => (
+                              <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 3, background: 'rgba(212,32,32,.06)', border: '1px solid rgba(212,32,32,.2)', borderRadius: 4, padding: '1px 5px' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--danger)', fontWeight: 700 }}>−{fmt(d.amount)}</span>
+                                {d.month === null && <span style={{ fontSize: 8, color: '#2563eb' }}>↻</span>}
+                                <button onClick={() => setDedModal({ wid: w.id, editDid: d.id })} style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 10, padding: 0 }}>✎</button>
+                                <button onClick={() => removeDeduction(w.id, d.id)} style={{ background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: 10, padding: 0 }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 700, color: net >= 0 ? 'var(--accent)' : 'var(--danger)' }}>{fmt(Math.round(net))}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {sorted.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 13, marginTop: 30 }}>
+                {sq ? 'No workers match your search.' : 'No active workers.'}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ── BY CREW view ── */}
+      {viewMode === 'crews' && <>
 
       {/* Summary table */}
       {!sq && (
@@ -564,6 +707,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
           No crews yet. Go to ⚙ Setup to add crews and products first.
         </div>
       )}
+      </>}
     </div>
   )
 }
