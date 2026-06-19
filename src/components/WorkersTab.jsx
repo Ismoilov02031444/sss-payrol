@@ -180,6 +180,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
   const [dedModal, setDedModal] = useState(null) // { wid, editDid }
   const [lvlModal, setLvlModal] = useState(null) // wid
   const [dragWid, setDragWid] = useState(null)
+  const [dragOverWid, setDragOverWid] = useState(null)
   const [viewMode, setViewMode] = useState('crews') // 'all' | 'crews'
 
   function addWorker(crewId, workerType) {
@@ -229,6 +230,29 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
       const deds = { ...(s.deductions || {}) }
       if (deds[wid]) deds[wid] = deds[wid].filter(d => d.id !== did)
       return { ...s, deductions: deds }
+    })
+  }
+
+  function reorderWorkers(dragId, overId) {
+    if (!dragId || !overId || dragId === overId) return
+    updateState(s => {
+      const ws = [...s.workers]
+      const dragIdx = ws.findIndex(w => w.id === dragId)
+      const overIdx = ws.findIndex(w => w.id === overId)
+      if (dragIdx === -1 || overIdx === -1) return s
+      // Re-assign sortOrders so dragged item lands at target position
+      const group = ws
+        .filter(w => w.crewId === ws[dragIdx].crewId && w.workerType === ws[dragIdx].workerType && !w.inactive)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      const dragGroupIdx = group.findIndex(w => w.id === dragId)
+      const overGroupIdx = group.findIndex(w => w.id === overId)
+      if (dragGroupIdx === -1 || overGroupIdx === -1) return s
+      group.splice(dragGroupIdx, 1)
+      group.splice(overGroupIdx, 0, ws[dragIdx])
+      const base = Date.now()
+      const updated = group.map((w, i) => ({ ...w, sortOrder: base + i * 10 }))
+      const updatedMap = Object.fromEntries(updated.map(w => [w.id, w]))
+      return { ...s, workers: ws.map(w => updatedMap[w.id] || w) }
     })
   }
 
@@ -467,8 +491,26 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
 
         const WorkerRow = ({ w, type }) => {
           const wDeds = (state.deductions?.[w.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+          const isDragging = dragWid === w.id
+          const isOver = dragOverWid === w.id
           return (
-            <tr key={w.id} style={{ borderBottom: '1px solid var(--border)' }}>
+            <tr
+              key={w.id}
+              draggable
+              onDragStart={() => setDragWid(w.id)}
+              onDragEnd={() => { setDragWid(null); setDragOverWid(null) }}
+              onDragOver={e => { e.preventDefault(); setDragOverWid(w.id) }}
+              onDrop={() => { reorderWorkers(dragWid, w.id); setDragWid(null); setDragOverWid(null) }}
+              style={{
+                borderBottom: '1px solid var(--border)',
+                opacity: isDragging ? 0.4 : 1,
+                background: isOver ? 'rgba(22,163,74,.08)' : 'transparent',
+                borderTop: isOver ? '2px solid var(--accent)' : undefined,
+                transition: 'background .1s'
+              }}
+            >
+              {/* Drag handle */}
+              <td style={{ padding: '4px 6px', cursor: 'grab', color: 'var(--text2)', fontSize: 16, userSelect: 'none', opacity: .5 }} title="Drag to reorder">⠿</td>
               <td style={{ padding: '7px 10px' }}>
                 <input
                   value={w.name}
@@ -604,6 +646,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ background: 'var(--surface2)' }}>
+                            <th style={{ padding: '6px 6px', width: 24 }}></th>
                             <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Name</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Level</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Change Level</th>
@@ -634,6 +677,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ background: 'var(--surface2)' }}>
+                            <th style={{ padding: '6px 6px', width: 24 }}></th>
                             <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Name</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Rate/Day</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Tax (so'm)</th>
@@ -663,6 +707,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
                       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                         <thead>
                           <tr style={{ background: 'var(--surface2)' }}>
+                            <th style={{ padding: '6px 6px', width: 24 }}></th>
                             <th style={{ padding: '6px 10px', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Name</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Monthly Salary</th>
                             <th style={{ padding: '6px 8px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', fontWeight: 700 }}>Tax (so'm)</th>
