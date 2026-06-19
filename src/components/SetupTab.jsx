@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { safeNum } from '../payroll'
 
-function uid() { return 'x' + Math.random().toString(36).slice(2, 10) }
+function uid() { return crypto.randomUUID() }
 
 export default function SetupTab({ state, updateState }) {
   const { crews = [], workers = [] } = state
@@ -30,12 +31,12 @@ export default function SetupTab({ state, updateState }) {
   }
 
   function updateLevelGap(cid, gap) {
-    updateState(s => ({ ...s, crews: s.crews.map(c => c.id === cid ? { ...c, levelGap: parseFloat(gap) || 10000 } : c) }))
+    updateState(s => ({ ...s, crews: s.crews.map(c => c.id === cid ? { ...c, levelGap: safeNum(gap, 0) || 10000 } : c) }))
   }
 
   function addProduct(cid) {
     const name = (newProductName[cid] || '').trim().toUpperCase()
-    const price = parseFloat(newProductPrice[cid]) || 0
+    const price = safeNum(newProductPrice[cid])
     if (!name) return
     const prod = { id: uid(), name, price }
     updateState(s => ({
@@ -51,7 +52,7 @@ export default function SetupTab({ state, updateState }) {
       ...s,
       crews: s.crews.map(c => c.id !== cid ? c : {
         ...c,
-        products: (c.products || []).map(p => p.id === pid ? { ...p, [field]: field === 'price' ? parseFloat(val) || 0 : val } : p)
+        products: (c.products || []).map(p => p.id === pid ? { ...p, [field]: field === 'price' ? safeNum(val) : val } : p)
       })
     }))
   }

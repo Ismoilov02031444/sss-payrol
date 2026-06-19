@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly } from '../payroll'
+import { crewDayEarning, monthDates, isDayOff, crewHasUnitsOnDay, getDayFraction, detectAnomaly, safeNum } from '../payroll'
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
-function uid() { return 'x' + Math.random().toString(36).slice(2, 10) }
+function uid() { return crypto.randomUUID() }
 
 function getWeekDates(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
@@ -54,7 +54,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
   const currentWeekDates = getWeekDates(selectedDate)
 
   function setUnit(date, crewId, productId, val) {
-    const v = parseFloat(val) || 0
+    const v = safeNum(val)
     updateState(s => {
       const d = { ...(s.daily || {}) }
       if (!d[date]) d[date] = {}
@@ -106,7 +106,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
   function submitDayOverride() {
     if (!dayOverrideModal) return
     const wid = dayOverrideModal.wid
-    const amt = parseFloat(overrideAmt) || null
+    const amt = overrideAmt !== '' ? safeNum(overrideAmt) : null
     updateState(s => {
       const res = {}
       if (overrideSticky) {

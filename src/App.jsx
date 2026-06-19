@@ -26,19 +26,14 @@ const EMPTY_STATE = {
   archive: [], _savedAt: 0,
 }
 
-function scoreState(s) {
-  if (!s || typeof s !== 'object') return 0
-  let score = 0
-  score += (s.workers?.length || 0) * 10
-  score += (s.crews?.length || 0) * 5
-  score += Object.keys(s.daily || {}).length * 2
-  score += (s._savedAt || 0) / 1e9
-  return score
+function defaultMonth() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
 }
 
 // Toast notification system
 let _toastId = 0
-function Toast({ toasts, setToasts }) {
+function Toast({ toasts }) {
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8 }}>
       {toasts.map(t => (
@@ -57,19 +52,25 @@ function Toast({ toasts, setToasts }) {
 }
 
 export default function App() {
-  const [session, setSession]       = useState(null)
+  const [session, setSession]         = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
-  const [state, setState]           = useState(EMPTY_STATE)
-  const [syncStatus, setSyncStatus] = useState('offline')
+  const [state, setState]             = useState(EMPTY_STATE)
+  const [syncStatus, setSyncStatus]   = useState('offline')
   const [onlineCount, setOnlineCount] = useState(1)
-  const [activeTab, setActiveTab]   = useState('workers')
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-  })
-  const [toasts, setToasts] = useState([])
-  const channelRef  = useRef(null)
+  const [activeTab, setActiveTab]     = useState('workers')
+  const [selectedMonth, setSelectedMonthRaw] = useState(
+    () => localStorage.getItem('sss_month') || defaultMonth()
+  )
+  const [toasts, setToasts]           = useState([])
+  const channelRef   = useRef(null)
   const pushTimerRef = useRef(null)
+  const localSavedAt = useRef(0)  // track our own last save time
+
+  // Persist selectedMonth to localStorage
+  function setSelectedMonth(m) {
+    setSelectedMonthRaw(m)
+    localStorage.setItem('sss_month', m)
+  }
 
   function showToast(msg, type = 'success') {
     const id = ++_toastId
@@ -82,7 +83,14 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session); setAuthLoading(false)
     })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s)
+      if (!s) {
+        // Session expired — clear state
+        setState(EMPTY_STATE)
+        showToast('Session expired — please sign in again', 'warning')
+      }
+    })
     return () => subscription.unsubscribe()
   }, [])
 
@@ -95,21 +103,27 @@ export default function App() {
         .from('payroll_state').select('state').eq('id', 'main').single()
       if (error) throw error
       const remote = data?.state || {}
-      setState(prev => scoreState(remote) >= scoreState(prev) ? { ...EMPTY_STATE, ...remote } : prev)
+      const remoteTime = remote._savedAt || 0
+      setState(prev => {
+        const localTime = prev._savedAt || 0
+        return remoteTime >= localTime ? { ...EMPTY_STATE, ...remote } : prev
+      })
       setSyncStatus('synced')
     } catch { setSyncStatus('offline') }
   }, [session])
 
-  // ── Push state to Supabase (throttled) ───────────────────────────────────
+  // ── Push state to Supabase (throttled 1.5s) ───────────────────────────────
   const pushState = useCallback((newState) => {
     clearTimeout(pushTimerRef.current)
     pushTimerRef.current = setTimeout(async () => {
       if (!session) return
       setSyncStatus('syncing')
+      const savedAt = Date.now()
+      localSavedAt.current = savedAt
       try {
         await supabase.from('payroll_state').upsert({
           id: 'main',
-          state: { ...newState, _savedAt: Date.now() },
+          state: { ...newState, _savedAt: savedAt },
           updated_by: session.user.email,
           updated_by_uid: session.user.id,
         })
@@ -139,8 +153,14 @@ export default function App() {
         event: 'UPDATE', schema: 'public', table: 'payroll_state', filter: 'id=eq.main'
       }, (payload) => {
         const remote = payload.new?.state || {}
+        const remoteTime = remote._savedAt || 0
         setState(prev => {
-          if (scoreState(remote) > scoreState(prev)) return { ...EMPTY_STATE, ...remote }
+          const localTime = prev._savedAt || 0
+          // Only apply remote if it's newer than what we last saved
+          if (remoteTime > localTime && remoteTime > localSavedAt.current) {
+            showToast('Data updated by another session', 'warning')
+            return { ...EMPTY_STATE, ...remote }
+          }
           return prev
         })
         setSyncStatus('synced')
@@ -199,7 +219,7 @@ export default function App() {
           {activeTab === 'archive' && <ArchiveTab {...tabProps} />}
         </div>
       </div>
-      <Toast toasts={toasts} setToasts={setToasts} />
+      <Toast toasts={toasts} />
     </>
   )
 }

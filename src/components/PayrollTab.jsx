@@ -3,7 +3,7 @@ import { workerMonthlyEarning, workerMonthDeductions, crewProductionDays, worker
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 function fmtDays(d) { return d == null ? '?' : (d % 1 === 0 ? d : d.toFixed(1)) }
-function uid() { return 'x' + Math.random().toString(36).slice(2, 10) }
+function uid() { return crypto.randomUUID() }
 
 const CREW_COLORS = ['#16a34a','#2563eb','#d97706','#9333ea','#e11d48','#0891b2']
 function crewColor(crews, cid) {

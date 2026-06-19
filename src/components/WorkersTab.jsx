@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
-import { LEVEL_RANK, LEVEL_LABEL, LEVEL_COLOR, LEVELS, workerMonthlyEarning, workerMonthDeductions } from '../payroll'
+import { LEVEL_RANK, LEVEL_LABEL, LEVEL_COLOR, LEVELS, workerMonthlyEarning, workerMonthDeductions, safeNum } from '../payroll'
 
-function uid() { return 'x' + Math.random().toString(36).slice(2, 10) }
+function uid() { return crypto.randomUUID() }
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 
 const CREW_COLORS = ['#16a34a','#2563eb','#d97706','#9333ea','#e11d48','#0891b2']
@@ -47,7 +47,7 @@ function DeductionModal({ wid, workers, selectedMonth, state, updateState, onClo
   const [recurring, setRecurring] = useState(existing ? existing.month === null : false)
 
   function submit() {
-    const amt = parseFloat(amount) || 0
+    const amt = safeNum(amount)
     if (amt <= 0) { alert('Enter an amount greater than 0'); return }
     updateState(s => {
       const deds = { ...(s.deductions || {}) }
@@ -353,7 +353,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
               {type === 'fixed' && (
                 <td style={{ padding: '7px 8px' }}>
                   <input type="number" value={w.fixedSalary || 0}
-                    onChange={e => updateWorker(w.id, 'fixedSalary', parseFloat(e.target.value) || 0)}
+                    onChange={e => updateWorker(w.id, 'fixedSalary', safeNum(e.target.value))}
                     style={{ width: 130, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', marginLeft: 4 }}>so'm/mo</span>
                 </td>
@@ -361,7 +361,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
               {type === 'daily' && (
                 <td style={{ padding: '7px 8px' }}>
                   <input type="number" value={w.dailyRate || 0}
-                    onChange={e => updateWorker(w.id, 'dailyRate', parseFloat(e.target.value) || 0)}
+                    onChange={e => updateWorker(w.id, 'dailyRate', safeNum(e.target.value))}
                     style={{ width: 130, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right', color: '#2563eb' }} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)', marginLeft: 4 }}>so'm/day</span>
                 </td>
@@ -369,7 +369,7 @@ export default function WorkersTab({ state, updateState, selectedMonth }) {
               <td style={{ padding: '7px 8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <input type="number" value={w.taxAmount || 0}
-                    onChange={e => updateWorker(w.id, 'taxAmount', parseFloat(e.target.value) || 0)}
+                    onChange={e => updateWorker(w.id, 'taxAmount', safeNum(e.target.value))}
                     placeholder="0" style={{ width: 90, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }} />
                   <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)' }}>tax</span>
                 </div>

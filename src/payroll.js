@@ -8,6 +8,13 @@ export const LEVEL_LABEL = { SeniorHigh: 'SeniorHigh', High: 'High', Mid: 'Mid',
 export const LEVEL_COLOR = { SeniorHigh: '#e6b800', High: '#2d8a00', Mid: '#1a6bbf', Beginner: '#6a0dad', Junior: '#888' }
 export const LEVELS = ['SeniorHigh', 'High', 'Mid', 'Beginner', 'Junior']
 
+/** Safe numeric parser — blocks negative, NaN, and unrealistic values */
+export function safeNum(val, min = 0, max = 1_000_000_000) {
+  const n = parseFloat(val)
+  if (!isFinite(n)) return min
+  return Math.min(max, Math.max(min, n))
+}
+
 export function getWorkerLevelOnDate(worker, date) {
   const history = worker.levelHistory
   if (!history || history.length === 0) return worker.level || 'Beginner'
