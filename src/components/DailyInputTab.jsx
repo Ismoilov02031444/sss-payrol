@@ -750,15 +750,15 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                   </span>
                 </div>
 
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ overflowX: 'auto', maxHeight: '70vh', overflowY: 'auto' }}>
                   <table style={{ borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11, minWidth: '100%' }}>
-                    <thead>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 4 }}>
                       {/* Name row */}
                       <tr>
                         <th style={{
                           padding: '8px 12px', textAlign: 'left', background: 'var(--surface2)',
                           borderBottom: '1px solid var(--border2)', borderRight: '2px solid var(--border2)',
-                          minWidth: 80, position: 'sticky', left: 0, zIndex: 3, fontWeight: 700, fontSize: 10, color: 'var(--text2)'
+                          minWidth: 80, position: 'sticky', left: 0, zIndex: 5, fontWeight: 700, fontSize: 10, color: 'var(--text2)'
                         }}>DATE</th>
                         {overviewWorkers.map(w => (
                           <th key={w.id} style={{
@@ -785,7 +785,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                           padding: '8px 10px', background: 'rgba(22,163,74,.12)',
                           borderBottom: '2px solid var(--border2)', borderLeft: '2px solid var(--border2)',
                           minWidth: 90, textAlign: 'right', fontWeight: 800, fontSize: 10,
-                          color: 'var(--accent)', position: 'sticky', right: 0, zIndex: 3
+                          color: 'var(--accent)', position: 'sticky', right: 0, zIndex: 5
                         }}>CREW TOTAL</th>
                       </tr>
                     </thead>
@@ -861,7 +861,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                       })}
                     </tbody>
 
-                    <tfoot>
+                    <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 4 }}>
                       {/* GROSS EARNINGS row */}
                       <tr style={{ background: 'rgba(22,163,74,.07)', borderTop: '2px solid var(--border2)' }}>
                         <td style={{
