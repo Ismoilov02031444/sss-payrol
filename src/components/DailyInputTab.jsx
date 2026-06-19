@@ -294,21 +294,27 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
 
       {/* Edit Week (bulk attendance) Modal */}
       {weekModal && (() => {
-        // Only show dates that belong to the current month
-        const weekDates = getWeekDates(bulkWeekStart).filter(d => allDates.includes(d))
-        const weekWorkers = workers.filter(w => w.crewId === selectedCrew && !w.inactive)
-
-        // Prev/next week navigation — clamped to month bounds
         const firstOfMonth = allDates[0]
         const lastOfMonth = allDates[allDates.length - 1]
-        const canGoPrev = bulkWeekStart > firstOfMonth
-        const canGoNext = getWeekDates(bulkWeekStart)[6] < lastOfMonth
+
+        // Always anchor to a date inside the month
+        const anchor = bulkWeekStart < firstOfMonth ? firstOfMonth : bulkWeekStart > lastOfMonth ? lastOfMonth : bulkWeekStart
+        // Only show dates that belong to the current month
+        const weekDates = getWeekDates(anchor).filter(d => allDates.includes(d))
+        const weekWorkers = workers.filter(w => w.crewId === selectedCrew && !w.inactive)
+
+        // Prev/next: check if there are earlier/later month dates outside this week
+        const canGoPrev = weekDates[0] > firstOfMonth
+        const canGoNext = weekDates[weekDates.length - 1] < lastOfMonth
 
         function shiftWeek(dir) {
-          const d = new Date(bulkWeekStart + 'T00:00:00')
+          // Move from the first/last date in current weekDates, not the raw bulkWeekStart
+          const ref = dir < 0 ? weekDates[0] : weekDates[weekDates.length - 1]
+          const d = new Date(ref + 'T00:00:00')
           d.setDate(d.getDate() + dir * 7)
-          const clamped = d.toISOString().slice(0, 10)
-          setBulkWeekStart(getWeekDates(clamped < firstOfMonth ? firstOfMonth : clamped > lastOfMonth ? lastOfMonth : clamped)[0])
+          const target = d.toISOString().slice(0, 10)
+          const clamped = target < firstOfMonth ? firstOfMonth : target > lastOfMonth ? lastOfMonth : target
+          setBulkWeekStart(getWeekDates(clamped)[0])
         }
 
         return (
@@ -339,11 +345,12 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                   <thead>
                     <tr>
                       <th style={{ padding: '7px 10px', textAlign: 'left', background: 'var(--surface2)', fontWeight: 700 }}>Worker</th>
-                      {weekDates.map((d, i) => {
+                      {weekDates.map((d) => {
                         const off = isDayOff(daysOff, d, selectedCrew)
+                        const dow = (new Date(d + 'T00:00:00').getDay() + 6) % 7 // 0=Mon
                         return (
                           <th key={d} style={{ padding: '6px 4px', background: off ? 'rgba(220,38,38,.06)' : 'var(--surface2)', minWidth: 70 }}>
-                            <div style={{ textAlign: 'center', color: 'var(--text2)', fontSize: 10 }}>{DAY_LABELS[i]}</div>
+                            <div style={{ textAlign: 'center', color: 'var(--text2)', fontSize: 10 }}>{DAY_LABELS[dow]}</div>
                             <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 11 }}>{d.slice(8)}</div>
                             <div style={{ display: 'flex', justifyContent: 'center', gap: 3, marginTop: 3 }}>
                               <button onClick={() => bulkSetAll(d, 1)} style={{ fontSize: 9, padding: '1px 4px', background: 'rgba(22,163,74,.1)', color: 'var(--accent)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 3, cursor: 'pointer' }}>All ✓</button>
@@ -554,7 +561,12 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
               color: 'var(--accent)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px',
               fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
             }}>📦 Bulk Units</button>
-            <button onClick={() => { setBulkWeekStart(getWeekDates(selectedDate)[0]); setWeekModal(true) }} style={{
+            <button onClick={() => {
+              // Snap week start to first date of current month if Monday falls before it
+              const ws = getWeekDates(selectedDate)[0]
+              setBulkWeekStart(ws < allDates[0] ? allDates[0] : ws)
+              setWeekModal(true)
+            }} style={{
               background: 'var(--surface2)', border: '1px solid var(--border2)',
               color: 'var(--accent)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px',
               fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
