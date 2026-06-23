@@ -1,9 +1,193 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { workerMonthlyEarning, workerMonthDeductions, crewProductionDays, workerDaysWorked, LEVEL_LABEL, monthDates, isDayOff, crewHasUnitsOnDay } from '../payroll'
 
 function fmt(n) { return Number(n || 0).toLocaleString('uz-UZ') }
 function fmtDays(d) { return d == null ? '?' : (d % 1 === 0 ? d : d.toFixed(1)) }
 function uid() { return crypto.randomUUID() }
+
+// ── Column labels per language ───────────────────────────────────────────────
+const LABELS = {
+  en: { title: 'SSS PAYROLL', num: '#', worker: 'Worker', crew: 'Crew', daysWorked: 'Days Worked', crewDays: 'Crew Days', gross: 'Gross', tax: 'Tax', avans: 'Avans', net: 'Net Salary', total: 'TOTAL', type: 'Type' },
+  ru: { title: 'ССС ЗАРПЛАТА', num: '№', worker: 'Работник', crew: 'Бригада', daysWorked: 'Отраб. дней', crewDays: 'Дней бригады', gross: 'Начислено', tax: 'Налог', avans: 'Аванс', net: 'К выдаче', total: 'ИТОГО', type: 'Тип' },
+  uz: { title: 'SSS OYLIK', num: '№', worker: 'Xodim', crew: 'Brigada', daysWorked: 'Ishlagan kun', crewDays: 'Brigada kun', gross: 'Yalpi', tax: 'Soliq', avans: 'Avans', net: 'Oylik', total: 'JAMI', type: 'Turi' },
+}
+
+// ── ALL WORKERS — 1 sheet ─────────────────────────────────────────────────────
+async function exportAllWorkers({ sorted, crews, results, deductions, selectedMonth, crewDaysMap, lang = 'en' }) {
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
+  const L = LABELS[lang]
+  const wb = XLSX.utils.book_new()
+
+  const rows = sorted.map((r, i) => {
+    const wDeds = (deductions?.[r.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+    const avanTotal = wDeds.reduce((a, d) => a + (d.amount || 0), 0)
+    const crewDays = r.crewId ? (crewDaysMap[r.crewId] ?? '') : ''
+    return [i + 1, r.name, r.crewName, r.daysWorked ?? '', crewDays,
+      Math.round(r.gross), Math.round(r.tax || 0), Math.round(avanTotal), Math.round(r.net)]
+  })
+
+  const ws = XLSX.utils.aoa_to_sheet([
+    [`${L.title} — ${selectedMonth}`], [],
+    [L.num, L.worker, L.crew, L.daysWorked, L.crewDays, L.gross, L.tax, L.avans, L.net],
+    ...rows, [],
+    ['', L.total, '', '', '',
+      Math.round(sorted.reduce((a, r) => a + r.gross, 0)),
+      Math.round(sorted.reduce((a, r) => a + (r.tax || 0), 0)),
+      Math.round(sorted.reduce((a, r) => {
+        const wDeds = (deductions?.[r.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+        return a + wDeds.reduce((b, d) => b + (d.amount || 0), 0)
+      }, 0)),
+      Math.round(sorted.reduce((a, r) => a + r.net, 0)),
+    ],
+  ])
+  ws['!cols'] = [{ wch: 4 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, ws, L.worker + 's')
+  XLSX.writeFile(wb, `SSS_Payroll_${selectedMonth}_${lang.toUpperCase()}.xlsx`)
+}
+
+// ── BY CREWS — separate sheets ────────────────────────────────────────────────
+async function exportByCrews({ sorted, crews, results, deductions, selectedMonth, crewDaysMap, lang = 'en' }) {
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
+  const L = LABELS[lang]
+  const wb = XLSX.utils.book_new()
+
+  // Summary sheet first
+  const summaryRows = sorted.map((r, i) => {
+    const wDeds = (deductions?.[r.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+    const avanTotal = wDeds.reduce((a, d) => a + (d.amount || 0), 0)
+    return [i + 1, r.name, r.crewName, r.daysWorked ?? '', Math.round(r.gross), Math.round(r.tax || 0), Math.round(avanTotal), Math.round(r.net)]
+  })
+  const wsSummary = XLSX.utils.aoa_to_sheet([
+    [`${L.title} — ${selectedMonth}`], [],
+    [L.num, L.worker, L.crew, L.daysWorked, L.gross, L.tax, L.avans, L.net],
+    ...summaryRows, [],
+    ['', L.total, '', '',
+      Math.round(sorted.reduce((a, r) => a + r.gross, 0)),
+      Math.round(sorted.reduce((a, r) => a + (r.tax || 0), 0)),
+      Math.round(sorted.reduce((a, r) => {
+        const wDeds = (deductions?.[r.id] || []).filter(d => d.month === null || d.month === selectedMonth)
+        return a + wDeds.reduce((b, d) => b + (d.amount || 0), 0)
+      }, 0)),
+      Math.round(sorted.reduce((a, r) => a + r.net, 0)),
+    ],
+  ])
+  wsSummary['!cols'] = [{ wch: 4 }, { wch: 30 }, { wch: 18 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, wsSummary, lang === 'uz' ? 'Jami' : lang === 'ru' ? 'Все' : 'All')
+
+  // Per-crew sheets
+  crews.forEach(crew => {
+    const cw = results.filter(r => r.crewId === crew.id)
+    if (!cw.length) return
+    const crewDays = crewDaysMap[crew.id] ?? ''
+    const rows = cw.map((r, i) => [
+      i + 1, r.name,
+      r.workerType === 'fixed' ? (lang === 'uz' ? 'Belgilangan' : lang === 'ru' ? 'Фикс.' : 'Fixed')
+        : r.workerType === 'daily' ? (lang === 'uz' ? 'Kunlik' : lang === 'ru' ? 'Суточный' : 'Daily')
+        : (LEVEL_LABEL[r.level] || r.level),
+      r.daysWorked ?? '', crewDays,
+      Math.round(r.gross), Math.round(r.tax || 0), Math.round(r.net),
+    ])
+    const crewNet = cw.reduce((a, r) => a + r.net, 0)
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`${crew.name} — ${selectedMonth}`], [],
+      [L.num, L.worker, L.type, L.daysWorked, L.crewDays, L.gross, L.tax, L.net],
+      ...rows, [],
+      ['', L.total, '', '', '', Math.round(cw.reduce((a, r) => a + r.gross, 0)), Math.round(cw.reduce((a, r) => a + (r.tax || 0), 0)), Math.round(crewNet)],
+    ])
+    ws['!cols'] = [{ wch: 4 }, { wch: 30 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 14 }]
+    const safeName = crew.name.replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 31)
+    XLSX.utils.book_append_sheet(wb, ws, safeName)
+  })
+
+  XLSX.writeFile(wb, `SSS_Payroll_ByCrew_${selectedMonth}_${lang.toUpperCase()}.xlsx`)
+}
+
+// ── DAILY TABLE — Date × Worker grid ─────────────────────────────────────────
+async function exportDailyTable({ crews, state, selectedMonth, crewDaysMap }) {
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
+  const { workers = [], daily = {}, absent = {}, dayFraction = {}, daysOff = {} } = state
+  const dates = monthDates(selectedMonth)
+  const wb = XLSX.utils.book_new()
+
+  crews.forEach(crew => {
+    const crewWorkers = workers.filter(w => w.crewId === crew.id && !w.inactive)
+    if (!crewWorkers.length) return
+
+    const header = ['Worker / Date', ...dates.map(d => d.slice(8)), 'Total']
+    const rows = crewWorkers.map(w => {
+      let total = 0
+      const cells = dates.map(date => {
+        if (isDayOff(daysOff, date, crew.id)) return 'OFF'
+        if (absent?.[date]?.[w.id]) return 'ABS'
+        const frac = dayFraction?.[date]?.[w.id]
+        if (frac !== undefined && frac !== null && frac !== 1) { total += frac; return frac }
+        // check if crew worked that day
+        const dayData = daily?.[date]?.[crew.id]
+        const crewWorked = dayData && Object.values(dayData).some(v => v > 0)
+        if (crewWorked) { total += 1; return 1 }
+        return ''
+      })
+      return [w.name, ...cells, total]
+    })
+
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`${crew.name} — Daily Table — ${selectedMonth}`], [],
+      header,
+      ...rows,
+    ])
+    ws['!cols'] = [{ wch: 28 }, ...dates.map(() => ({ wch: 4 })), { wch: 6 }]
+    const safeName = crew.name.replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 29) + '-D'
+    XLSX.utils.book_append_sheet(wb, ws, safeName)
+  })
+
+  XLSX.writeFile(wb, `SSS_DailyTable_${selectedMonth}.xlsx`)
+}
+
+// ── UNITS PRODUCTION — Date × Product units ──────────────────────────────────
+async function exportUnitsProduction({ crews, state, selectedMonth }) {
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.3/package/xlsx.mjs')
+  const { daily = {} } = state
+  const dates = monthDates(selectedMonth)
+  const wb = XLSX.utils.book_new()
+
+  crews.forEach(crew => {
+    const products = crew.products || []
+    if (!products.length) return
+
+    const header = ['Date', ...products.map(p => p.name), 'Total Units', 'Total Revenue']
+    const rows = dates.map(date => {
+      const dayData = daily?.[date]?.[crew.id] || {}
+      let totalUnits = 0, totalRev = 0
+      const cells = products.map(p => {
+        const units = dayData[p.id] || 0
+        totalUnits += units
+        totalRev += units * (p.price || 0)
+        return units || ''
+      })
+      return [date.slice(5), ...cells, totalUnits || '', Math.round(totalRev) || '']
+    })
+
+    // Totals row
+    const totalsRow = [
+      'TOTAL',
+      ...products.map(p => dates.reduce((a, date) => a + (daily?.[date]?.[crew.id]?.[p.id] || 0), 0)),
+      dates.reduce((a, date) => a + products.reduce((b, p) => b + (daily?.[date]?.[crew.id]?.[p.id] || 0), 0), 0),
+      Math.round(dates.reduce((a, date) => a + products.reduce((b, p) => b + (daily?.[date]?.[crew.id]?.[p.id] || 0) * (p.price || 0), 0), 0)),
+    ]
+
+    const ws = XLSX.utils.aoa_to_sheet([
+      [`${crew.name} — Units Production — ${selectedMonth}`], [],
+      header,
+      ...rows, [],
+      totalsRow,
+    ])
+    ws['!cols'] = [{ wch: 8 }, ...products.map(p => ({ wch: Math.max(10, p.name.length + 2) })), { wch: 12 }, { wch: 16 }]
+    const safeName = crew.name.replace(/[:\\\/\?\*\[\]]/g, '').slice(0, 29) + '-U'
+    XLSX.utils.book_append_sheet(wb, ws, safeName)
+  })
+
+  XLSX.writeFile(wb, `SSS_Units_${selectedMonth}.xlsx`)
+}
 
 const CREW_COLORS = ['#16a34a','#2563eb','#d97706','#9333ea','#e11d48','#0891b2']
 function crewColor(crews, cid) {
@@ -80,6 +264,37 @@ export default function PayrollTab({ state, updateState, selectedMonth, setSelec
   const [openCrewId, setOpenCrewId] = useState(null)
   const [dedModal, setDedModal] = useState(null) // { wid, editDid }
   const [archiveModal, setArchiveModal] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const exportBtnRef = useRef(null)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!showExportMenu) return
+    function handleClick(e) {
+      if (exportBtnRef.current && !exportBtnRef.current.contains(e.target)) setShowExportMenu(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showExportMenu])
+
+  async function runExport(fn, ...args) {
+    setShowExportMenu(false)
+    setExporting(true)
+    try { await fn(...args) }
+    catch (e) { alert('Export failed: ' + e.message) }
+    finally { setExporting(false) }
+  }
+
+  const menuItemStyle = {
+    display: 'flex', alignItems: 'center', gap: 10,
+    width: '100%', textAlign: 'left',
+    background: 'transparent', border: 'none',
+    padding: '8px 16px', cursor: 'pointer',
+    fontFamily: 'var(--font-mono)', fontSize: 12,
+    color: 'var(--text)',
+    transition: 'background .1s',
+  }
 
   function removeDeduction(wid, did) {
     if (!confirm('Remove this deduction?')) return
@@ -178,6 +393,81 @@ export default function PayrollTab({ state, updateState, selectedMonth, setSelec
         <input value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="🔍 Search workers…"
           style={{ flex: 1, minWidth: 140, fontFamily: 'var(--font-mono)', fontSize: 12 }} />
         {searchQ && <button onClick={() => setSearchQ('')} style={{ background: 'transparent', border: 'none', color: 'var(--text2)', cursor: 'pointer', fontSize: 14 }}>✕</button>}
+        {/* Excel export dropdown */}
+        <div ref={exportBtnRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => !exporting && setShowExportMenu(v => !v)}
+            disabled={exporting}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: showExportMenu ? '#16a34a' : 'rgba(22,163,74,.1)',
+              border: '1px solid rgba(22,163,74,.4)',
+              color: showExportMenu ? '#fff' : '#16a34a',
+              borderRadius: 8, cursor: exporting ? 'wait' : 'pointer',
+              padding: '7px 13px', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
+              opacity: exporting ? 0.7 : 1, transition: 'all .15s'
+            }}
+          >
+            {exporting ? '⏳ Exporting…' : <><span>📊 Download Excel</span><span style={{ fontSize: 10, marginLeft: 2 }}>▾</span></>}
+          </button>
+
+          {showExportMenu && (
+            <div style={{
+              position: 'absolute', top: '110%', right: 0, zIndex: 999,
+              background: 'var(--surface)', border: '2px solid var(--border2)',
+              borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,.25)',
+              minWidth: 240, overflow: 'hidden',
+            }}>
+              {/* ALL WORKERS */}
+              <div style={{ padding: '8px 14px 4px', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#16a34a', letterSpacing: 1, fontWeight: 700, background: 'rgba(22,163,74,.06)' }}>
+                📋 ALL WORKERS (1 sheet)
+              </div>
+              {[['🇬🇧', 'English', 'en'], ['🇷🇺', 'Russian', 'ru'], ['🇺🇿', "O'zbek", 'uz']].map(([flag, label, lang]) => (
+                <button key={lang} onClick={() => runExport(exportAllWorkers, { sorted, crews, results, deductions, selectedMonth, crewDaysMap, lang })}
+                  style={menuItemStyle}>
+                  <span style={{ fontSize: 14 }}>{flag}</span> {label}
+                </button>
+              ))}
+
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+              {/* BY CREWS */}
+              <div style={{ padding: '8px 14px 4px', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#2563eb', letterSpacing: 1, fontWeight: 700, background: 'rgba(37,99,235,.06)' }}>
+                🏭 BY CREWS (separate sheets)
+              </div>
+              {[['🇬🇧', 'English', 'en'], ['🇷🇺', 'Russian', 'ru'], ['🇺🇿', "O'zbek", 'uz']].map(([flag, label, lang]) => (
+                <button key={lang} onClick={() => runExport(exportByCrews, { sorted, crews, results, deductions, selectedMonth, crewDaysMap, lang })}
+                  style={menuItemStyle}>
+                  <span style={{ fontSize: 14 }}>{flag}</span> {label}
+                </button>
+              ))}
+
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+              {/* DAILY TABLE */}
+              <div style={{ padding: '8px 14px 4px', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#d97706', letterSpacing: 1, fontWeight: 700, background: 'rgba(217,119,6,.06)' }}>
+                📅 DAILY TABLE (like on screen)
+              </div>
+              <button onClick={() => runExport(exportDailyTable, { crews, state, selectedMonth, crewDaysMap })}
+                style={menuItemStyle}>
+                <span style={{ fontSize: 14 }}>📊</span>
+                <span>One sheet per crew —<br /><span style={{ color: 'var(--text2)', fontSize: 11 }}>Date × Worker grid</span></span>
+              </button>
+
+              <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+
+              {/* UNITS PRODUCTION */}
+              <div style={{ padding: '8px 14px 4px', fontFamily: 'var(--font-mono)', fontSize: 10, color: '#9333ea', letterSpacing: 1, fontWeight: 700, background: 'rgba(147,51,234,.06)' }}>
+                📦 UNITS PRODUCTION
+              </div>
+              <button onClick={() => runExport(exportUnitsProduction, { crews, state, selectedMonth })}
+                style={{ ...menuItemStyle, paddingBottom: 12 }}>
+                <span style={{ fontSize: 14 }}>📈</span>
+                <span>One sheet per crew —<br /><span style={{ color: 'var(--text2)', fontSize: 11 }}>Date × Product units</span></span>
+              </button>
+            </div>
+          )}
+        </div>
         <button onClick={() => setArchiveModal(true)} style={{
           background: 'rgba(22,163,74,.08)', border: '1px solid var(--border2)',
           color: 'var(--accent)', borderRadius: 8, cursor: 'pointer',
