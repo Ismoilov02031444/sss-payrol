@@ -377,7 +377,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                                 color: f === 1 ? 'var(--accent)' : f === 0.5 ? '#d97706' : 'var(--danger)',
                                 boxShadow: f === 1 ? '0 0 0 1.5px var(--accent)' : f === 0.5 ? '0 0 0 1.5px #d97706' : '0 0 0 1.5px var(--danger)'
                               }}>
-                                {f === 1 ? '✓ Full' : f === 0.5 ? '½' : '✕'}
+                                {f === 1 ? '✓' : f === 0.5 ? '½' : '✕'}
                               </button>
                             </td>
                           )
