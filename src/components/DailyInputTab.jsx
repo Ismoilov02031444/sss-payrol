@@ -401,22 +401,43 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
 
       {/* Bulk Units Modal */}
       {bulkModal && (() => {
-        const weekDates = getWeekDates(bulkWeekStart)
+        // Only show dates that belong to the selected month
+        const allWeekDates = getWeekDates(bulkWeekStart)
+        const weekDates = allWeekDates.filter(d => allDates.includes(d))
+        const firstOfMonth = allDates[0]
+        const lastOfMonth = allDates[allDates.length - 1]
+        const canGoPrev = bulkWeekStart > firstOfMonth
+        const canGoNext = allWeekDates[6] < lastOfMonth
+
+        function shiftBulkWeek(dir) {
+          const d = new Date(bulkWeekStart + 'T00:00:00')
+          d.setDate(d.getDate() + dir * 7)
+          let target = d.toISOString().slice(0, 10)
+          if (target < firstOfMonth) target = firstOfMonth
+          if (target > lastOfMonth) target = lastOfMonth
+          setBulkWeekStart(target)
+        }
+
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div style={{ background: 'var(--surface)', border: '2px solid var(--border2)', borderRadius: 16, padding: 24, maxWidth: 820, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <div style={{ fontFamily: 'var(--font-disp)', fontSize: 18, letterSpacing: 1, flex: 1 }}>📦 Bulk Units — {crew?.name}</div>
-                <button onClick={() => {
-                  const prev = new Date(bulkWeekStart + 'T00:00:00')
-                  prev.setDate(prev.getDate() - 7)
-                  setBulkWeekStart(prev.toISOString().slice(0, 10))
-                }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>◀ Prev</button>
-                <button onClick={() => {
-                  const next = new Date(bulkWeekStart + 'T00:00:00')
-                  next.setDate(next.getDate() + 7)
-                  setBulkWeekStart(next.toISOString().slice(0, 10))
-                }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>Next ▶</button>
+                <button onClick={() => shiftBulkWeek(-1)} disabled={!canGoPrev} style={{
+                  background: canGoPrev ? 'var(--surface2)' : 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: '5px 12px',
+                  cursor: canGoPrev ? 'pointer' : 'default', color: canGoPrev ? 'var(--text)' : 'var(--text3)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
+                }}>◀ Prev</button>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+                  {weekDates[0]?.slice(5)} – {weekDates[weekDates.length - 1]?.slice(5)}
+                </span>
+                <button onClick={() => shiftBulkWeek(1)} disabled={!canGoNext} style={{
+                  background: canGoNext ? 'var(--surface2)' : 'transparent',
+                  border: '1px solid var(--border)', borderRadius: 6, padding: '5px 12px',
+                  cursor: canGoNext ? 'pointer' : 'default', color: canGoNext ? 'var(--text)' : 'var(--text3)',
+                  fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
+                }}>Next ▶</button>
                 <button onClick={clearWeekUnits} style={{ background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.2)', color: 'var(--danger)', borderRadius: 6, cursor: 'pointer', padding: '5px 12px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>🗑 Clear Week</button>
                 <button onClick={() => setBulkModal(false)} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text2)' }}>✕</button>
               </div>
@@ -425,17 +446,26 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                   <thead>
                     <tr>
                       <th style={{ padding: '7px 10px', textAlign: 'left', background: 'var(--surface2)', fontWeight: 700 }}>Product</th>
-                      {weekDates.map((d, i) => {
+                      {weekDates.map((d) => {
                         const dayOff = isDayOff(daysOff, d, selectedCrew)
+                        const dow = (new Date(d + 'T00:00:00').getDay() + 6) % 7
+                        const isWeekend = dow >= 5
+                        const hasData = bulkGetUnit(d, products[0]?.id) > 0 || products.some(p => bulkGetUnit(d, p.id) > 0)
                         return (
-                          <th key={d} style={{ padding: '6px 6px', background: dayOff ? 'rgba(220,38,38,.06)' : 'var(--surface2)', minWidth: 80, textAlign: 'center' }}>
-                            <div style={{ fontSize: 10, color: 'var(--text2)' }}>{DAY_LABELS[i]}</div>
-                            <div style={{ fontWeight: 700, fontSize: 11 }}>{d.slice(5)}</div>
+                          <th key={d} style={{
+                            padding: '8px 6px', minWidth: 88, textAlign: 'center',
+                            background: dayOff ? 'rgba(220,38,38,.08)' : hasData ? 'rgba(22,163,74,.07)' : 'var(--surface2)',
+                            borderBottom: `3px solid ${dayOff ? 'var(--danger)' : hasData ? 'var(--accent)' : 'var(--border)'}`,
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: isWeekend ? '#d97706' : 'var(--text2)', marginBottom: 2 }}>{DAY_LABELS[dow]}</div>
+                            <div style={{ fontWeight: 800, fontSize: 15, color: dayOff ? 'var(--danger)' : 'var(--text)', letterSpacing: 0.5 }}>{d.slice(8)}</div>
+                            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>{d.slice(5, 7)}/{d.slice(0, 4)}</div>
                             <button onClick={() => copyDayUnits(d)} style={{
-                              marginTop: 3, fontSize: 9, padding: '1px 5px',
-                              background: 'rgba(22,163,74,.08)', color: 'var(--accent)',
-                              border: '1px solid rgba(22,163,74,.2)', borderRadius: 3, cursor: 'pointer'
-                            }} title="Copy this day to all other days">⎘ Copy</button>
+                              fontSize: 9, padding: '2px 6px',
+                              background: 'rgba(22,163,74,.1)', color: 'var(--accent)',
+                              border: '1px solid rgba(22,163,74,.25)', borderRadius: 4, cursor: 'pointer',
+                              fontFamily: 'var(--font-mono)', fontWeight: 700
+                            }} title="Copy this day to all other days in week">⎘ Copy</button>
                           </th>
                         )
                       })}
@@ -447,19 +477,21 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                         <td style={{ padding: '7px 10px', fontWeight: 700 }}>{p.name}</td>
                         {weekDates.map(d => {
                           const dayOff = isDayOff(daysOff, d, selectedCrew)
+                          const val = bulkGetUnit(d, p.id)
                           return (
                             <td key={d} style={{ padding: 4, background: dayOff ? 'rgba(220,38,38,.04)' : '' }}>
                               <input
                                 type="number"
-                                value={bulkGetUnit(d, p.id) || ''}
+                                value={val || ''}
                                 onChange={e => bulkSetUnit(d, p.id, e.target.value)}
                                 disabled={dayOff}
                                 style={{
                                   width: '100%', textAlign: 'right',
-                                  fontFamily: 'var(--font-mono)', fontSize: 12,
-                                  background: dayOff ? 'rgba(220,38,38,.04)' : '',
-                                  border: `1px solid var(--border)`, borderRadius: 4, padding: '5px 6px',
-                                  boxSizing: 'border-box'
+                                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: val > 0 ? 700 : 400,
+                                  background: dayOff ? 'rgba(220,38,38,.04)' : val > 0 ? 'rgba(22,163,74,.06)' : '',
+                                  border: `1.5px solid ${val > 0 ? 'rgba(22,163,74,.35)' : 'var(--border)'}`,
+                                  borderRadius: 5, padding: '6px 8px',
+                                  boxSizing: 'border-box', color: val > 0 ? 'var(--accent)' : 'var(--text)'
                                 }}
                               />
                             </td>
@@ -478,7 +510,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                         const dayData = daily?.[d]?.[selectedCrew] || {}
                         const rev = products.reduce((a, p) => a + (dayData[p.id] || 0) * (p.price || 0), 0)
                         return (
-                          <td key={d} style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>
+                          <td key={d} style={{ padding: '7px 6px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: rev > 0 ? 'var(--accent)' : 'var(--text3)' }}>
                             {rev > 0 ? fmt(Math.round(rev)) : '—'}
                           </td>
                         )
