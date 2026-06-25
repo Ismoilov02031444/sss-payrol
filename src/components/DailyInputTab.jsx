@@ -742,7 +742,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                                 background: f === 1 ? 'rgba(22,163,74,.25)' : 'rgba(22,163,74,.07)',
                                 color: 'var(--accent)',
                                 boxShadow: f === 1 ? '0 0 0 1.5px var(--accent)' : 'none'
-                              }}>Full</button>
+                              }}>✓</button>
                             </div>
                           </td>
                           {/* Set override */}
