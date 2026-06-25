@@ -8,6 +8,7 @@ export default function SetupTab({ state, updateState }) {
   const [newCrewName, setNewCrewName] = useState('')
   const [newProductName, setNewProductName] = useState({})
   const [newProductPrice, setNewProductPrice] = useState({})
+  const [openCrewId, setOpenCrewId] = useState(null)
 
   function addCrew() {
     const name = newCrewName.trim().toUpperCase()
@@ -70,98 +71,127 @@ export default function SetupTab({ state, updateState }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>⚙ Setup</h2>
+        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>\u2699 Setup</h2>
       </div>
 
       {/* Crews */}
-      {crews.map(crew => (
-        <div key={crew.id} style={{
-          border: `2px solid ${crewColor(crew.id)}44`,
-          borderLeft: `4px solid ${crewColor(crew.id)}`,
-          borderRadius: 12, marginBottom: 16, overflow: 'hidden',
-          boxShadow: 'var(--shadow)'
-        }}>
-          <div style={{ padding: '14px 18px', background: 'var(--surface2)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <input
-              value={crew.name}
-              onChange={e => updateCrewName(crew.id, e.target.value)}
-              style={{ fontFamily: 'var(--font-disp)', fontSize: 16, letterSpacing: 2, fontWeight: 700, border: 'none', background: 'transparent', color: 'var(--text)', width: 160 }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-              <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)' }}>Level Gap (so'm):</label>
+      {crews.map(crew => {
+        const isOpen = openCrewId === crew.id
+        const col = crewColor(crew.id)
+        return (
+          <div key={crew.id} style={{
+            border: `2px solid ${isOpen ? col : col + '44'}`,
+            borderLeft: `4px solid ${col}`,
+            borderRadius: 12, marginBottom: 16, overflow: 'hidden',
+            boxShadow: 'var(--shadow)', transition: 'border-color .2s'
+          }}>
+            {/* Header - click to toggle */}
+            <div
+              onClick={() => setOpenCrewId(isOpen ? null : crew.id)}
+              style={{
+                padding: '14px 18px',
+                background: isOpen ? col + '22' : 'var(--surface2)',
+                display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+                cursor: 'pointer', userSelect: 'none',
+                borderBottom: isOpen ? `1px solid ${col}44` : 'none'
+              }}>
+              <span style={{
+                color: col, fontSize: 18, fontWeight: 700,
+                display: 'inline-block',
+                transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform .2s'
+              }}>\u203a</span>
               <input
-                type="number"
-                value={crew.levelGap || 10000}
-                onChange={e => updateLevelGap(crew.id, e.target.value)}
-                style={{ width: 100, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                value={crew.name}
+                onClick={e => e.stopPropagation()}
+                onChange={e => updateCrewName(crew.id, e.target.value)}
+                style={{
+                  fontFamily: 'var(--font-disp)', fontSize: 16, letterSpacing: 2,
+                  fontWeight: 700, border: 'none', background: 'transparent',
+                  color: 'var(--text)', width: 160
+                }}
               />
-              <button onClick={() => removeCrew(crew.id)} style={{
-                background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)',
-                color: 'var(--danger)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px',
-                fontFamily: 'var(--font-mono)', fontSize: 11
-              }}>✕ Remove Crew</button>
+              <div
+                style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}
+                onClick={e => e.stopPropagation()}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)' }}>Level Gap (so'm):</label>
+                <input
+                  type="number"
+                  value={crew.levelGap || 10000}
+                  onChange={e => updateLevelGap(crew.id, e.target.value)}
+                  style={{ width: 100, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                />
+                <button onClick={() => removeCrew(crew.id)} style={{
+                  background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)',
+                  color: 'var(--danger)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px',
+                  fontFamily: 'var(--font-mono)', fontSize: 11
+                }}>\u2715 Remove Crew</button>
+              </div>
             </div>
-          </div>
 
-          <div style={{ padding: '16px 18px', background: 'var(--surface)' }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', marginBottom: 8, letterSpacing: 1 }}>PRODUCTS / PRICES</div>
+            {/* Body - only shown when open */}
+            {isOpen && (
+              <div style={{ padding: '16px 18px', background: 'var(--surface)' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', marginBottom: 8, letterSpacing: 1 }}>PRODUCTS / PRICES</div>
 
-            {(crew.products || []).length === 0 && (
-              <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>No products yet.</div>
-            )}
+                {(crew.products || []).length === 0 && (
+                  <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, fontStyle: 'italic', marginBottom: 8 }}>No products yet.</div>
+                )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-              {(crew.products || []).map(prod => (
-                <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                  {(crew.products || []).map(prod => (
+                    <div key={prod.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <input
+                        value={prod.name}
+                        onChange={e => updateProduct(crew.id, prod.id, 'name', e.target.value.toUpperCase())}
+                        style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 80 }}
+                        placeholder="Product name"
+                      />
+                      <input
+                        type="number"
+                        value={prod.price}
+                        onChange={e => updateProduct(crew.id, prod.id, 'price', e.target.value)}
+                        style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }}
+                        placeholder="Price/unit"
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)' }}>so'm/unit</span>
+                      <button onClick={() => removeProduct(crew.id, prod.id)} style={{
+                        background: 'transparent', border: '1px solid rgba(220,38,38,.25)',
+                        color: 'var(--danger)', borderRadius: 4, cursor: 'pointer', padding: '3px 8px',
+                        fontFamily: 'var(--font-mono)', fontSize: 11
+                      }}>\u2715</button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add product */}
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
-                    value={prod.name}
-                    onChange={e => updateProduct(crew.id, prod.id, 'name', e.target.value.toUpperCase())}
-                    style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, minWidth: 80 }}
+                    value={newProductName[crew.id] || ''}
+                    onChange={e => setNewProductName(p => ({ ...p, [crew.id]: e.target.value }))}
                     placeholder="Product name"
+                    style={{ flex: 1, minWidth: 120, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                    onKeyDown={e => e.key === 'Enter' && addProduct(crew.id)}
                   />
                   <input
                     type="number"
-                    value={prod.price}
-                    onChange={e => updateProduct(crew.id, prod.id, 'price', e.target.value)}
-                    style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }}
+                    value={newProductPrice[crew.id] || ''}
+                    onChange={e => setNewProductPrice(p => ({ ...p, [crew.id]: e.target.value }))}
                     placeholder="Price/unit"
+                    style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }}
+                    onKeyDown={e => e.key === 'Enter' && addProduct(crew.id)}
                   />
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text2)' }}>so'm/unit</span>
-                  <button onClick={() => removeProduct(crew.id, prod.id)} style={{
-                    background: 'transparent', border: '1px solid rgba(220,38,38,.25)',
-                    color: 'var(--danger)', borderRadius: 4, cursor: 'pointer', padding: '3px 8px',
-                    fontFamily: 'var(--font-mono)', fontSize: 11
-                  }}>✕</button>
+                  <button onClick={() => addProduct(crew.id)} style={{
+                    background: 'var(--accent)', color: '#fff', border: 'none',
+                    borderRadius: 6, cursor: 'pointer', padding: '6px 14px',
+                    fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
+                  }}>+ Add Product</button>
                 </div>
-              ))}
-            </div>
-
-            {/* Add product */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                value={newProductName[crew.id] || ''}
-                onChange={e => setNewProductName(p => ({ ...p, [crew.id]: e.target.value }))}
-                placeholder="Product name"
-                style={{ flex: 1, minWidth: 120, fontFamily: 'var(--font-mono)', fontSize: 12 }}
-                onKeyDown={e => e.key === 'Enter' && addProduct(crew.id)}
-              />
-              <input
-                type="number"
-                value={newProductPrice[crew.id] || ''}
-                onChange={e => setNewProductPrice(p => ({ ...p, [crew.id]: e.target.value }))}
-                placeholder="Price/unit"
-                style={{ width: 110, fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right' }}
-                onKeyDown={e => e.key === 'Enter' && addProduct(crew.id)}
-              />
-              <button onClick={() => addProduct(crew.id)} style={{
-                background: 'var(--accent)', color: '#fff', border: 'none',
-                borderRadius: 6, cursor: 'pointer', padding: '6px 14px',
-                fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700
-              }}>+ Add Product</button>
-            </div>
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        )
+      })}
 
       {/* Add crew */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
