@@ -43,12 +43,21 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
   const crew = crews.find(c => c.id === selectedCrew)
   const products = crew?.products || []
 
-  // Crew workers active on selected date
-  const crewWs = workers.filter(w =>
-    w.crewId === selectedCrew && !w.inactive &&
-    (!w.joinDate || w.joinDate <= selectedDate) &&
-    (!w.leaveDate || w.leaveDate >= selectedDate)
-  )
+  // Crew workers active on selected date, ordered by level then name
+  const crewWs = workers
+    .filter(w =>
+      w.crewId === selectedCrew && !w.inactive &&
+      (!w.joinDate || w.joinDate <= selectedDate) &&
+      (!w.leaveDate || w.leaveDate >= selectedDate)
+    )
+    .sort((a, b) => {
+      const typeRank = t => t === 'commission' ? 0 : t === 'daily' ? 1 : 2
+      const tDiff = typeRank(a.workerType) - typeRank(b.workerType)
+      if (tDiff !== 0) return tDiff
+      const lDiff = (LEVEL_RANK[b.level] || 0) - (LEVEL_RANK[a.level] || 0)
+      if (lDiff !== 0) return lDiff
+      return (a.name || '').localeCompare(b.name || '')
+    })
 
   const allDates = monthDates(selectedMonth)
   const currentWeekDates = getWeekDates(selectedDate)
