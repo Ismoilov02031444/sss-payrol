@@ -682,39 +682,103 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--text)', flex: 1 }}>👥 ATTENDANCE ({crewWs.length} workers)</span>
             </div>
             {attOpen && (
-              <div style={{ padding: 14 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
-                  {crewWs.map(w => {
-                    const f = getDayFraction(selectedDate, w.id, absent, dayFraction)
-                    const ov = dayOverride?.[selectedDate]?.[w.id] ?? stickyOverride?.[w.id]
-                    const hasOv = ov !== undefined && ov !== null
-                    return (
-                      <div key={w.id} onContextMenu={e => { e.preventDefault(); openCtxMenu(e, w.id) }} style={{
-                        display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
-                        background: f === 0 ? 'rgba(220,38,38,.06)' : f < 1 ? 'rgba(251,191,36,.06)' : 'var(--surface2)',
-                        border: `1px solid ${f === 0 ? 'rgba(220,38,38,.2)' : f < 1 ? 'rgba(251,191,36,.3)' : 'var(--border)'}`,
-                        borderRadius: 8, cursor: 'context-menu', userSelect: 'none'
-                      }}>
-                        <button onClick={() => setFrac(selectedDate, w.id, f === 1 ? 0 : f === 0.5 ? 0 : f === 0 ? 1 : 1)} style={{
-                          width: 32, height: 32, borderRadius: 6, border: 'none', cursor: 'pointer',
-                          background: f === 1 ? 'rgba(22,163,74,.2)' : f === 0.5 ? 'rgba(251,191,36,.2)' : 'rgba(220,38,38,.15)',
-                          color: f === 1 ? 'var(--accent)' : f === 0.5 ? '#d97706' : 'var(--danger)',
-                          fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, flexShrink: 0
-                        }}>{f === 1 ? '✓' : f === 0.5 ? '½' : '✕'}</button>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, color: f === 0 ? 'var(--danger)' : 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</div>
-                          {hasOv && <div style={{ fontSize: 9, color: '#2563eb', fontFamily: 'var(--font-mono)' }}>💰 {fmt(ov)}</div>}
-                        </div>
-                        <div style={{ display: 'flex', gap: 3 }}>
-                          <button onClick={() => setFrac(selectedDate, w.id, 1)} style={{ background: 'rgba(22,163,74,.1)', border: 'none', borderRadius: 3, padding: '2px 5px', cursor: 'pointer', fontSize: 10, color: 'var(--accent)', fontWeight: 700 }}>✓</button>
-                          <button onClick={() => setFrac(selectedDate, w.id, 0.5)} style={{ background: 'rgba(251,191,36,.1)', border: 'none', borderRadius: 3, padding: '2px 5px', cursor: 'pointer', fontSize: 10, color: '#d97706', fontWeight: 700 }}>½</button>
-                          <button onClick={() => setFrac(selectedDate, w.id, 0)} style={{ background: 'rgba(220,38,38,.1)', border: 'none', borderRadius: 3, padding: '2px 5px', cursor: 'pointer', fontSize: 10, color: 'var(--danger)', fontWeight: 700 }}>✕</button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {crewWs.length === 0 && <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, fontStyle: 'italic', gridColumn: '1/-1' }}>No workers active on this date.</div>}
-                </div>
+              <div style={{ padding: '8px 0' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: 'var(--surface2)' }}>
+                      <th style={{ padding: '6px 14px', textAlign: 'left', color: 'var(--text2)', fontWeight: 700, fontSize: 10, letterSpacing: 1 }}>WORKER</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--text2)', fontWeight: 700, fontSize: 10 }}>LEVEL</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--text2)', fontWeight: 700, fontSize: 10 }}>STATUS</th>
+                      <th style={{ padding: '6px 8px', textAlign: 'center', color: 'var(--text2)', fontWeight: 700, fontSize: 10 }}>OVERRIDE</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {crewWs.map(w => {
+                      const f = getDayFraction(selectedDate, w.id, absent, dayFraction)
+                      const ov = dayOverride?.[selectedDate]?.[w.id] ?? stickyOverride?.[w.id]
+                      const hasOv = ov !== undefined && ov !== null
+                      const isSticky = stickyOverride?.[w.id] !== undefined && stickyOverride?.[w.id] !== null
+                      return (
+                        <tr key={w.id}
+                          onContextMenu={e => { e.preventDefault(); openCtxMenu(e, w.id) }}
+                          style={{
+                            borderBottom: '1px solid var(--border)',
+                            background: f === 0 ? 'rgba(220,38,38,.04)' : f < 1 ? 'rgba(251,191,36,.04)' : 'transparent',
+                          }}>
+                          {/* Name */}
+                          <td style={{ padding: '8px 14px', fontWeight: 700, color: f === 0 ? 'var(--danger)' : 'var(--text)' }}>
+                            {w.name}
+                          </td>
+                          {/* Level */}
+                          <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                            {w.workerType === 'commission' && w.level && (
+                              <span style={{ fontSize: 10, fontWeight: 700, color: LEVEL_COLOR[w.level] || '#888' }}>
+                                {w.level.replace(/([A-Z])/g, ' $1').trim()}
+                              </span>
+                            )}
+                            {w.workerType === 'fixed' && <span style={{ fontSize: 10, color: '#d97706', fontWeight: 700 }}>FIXED</span>}
+                            {w.workerType === 'daily' && <span style={{ fontSize: 10, color: '#2563eb', fontWeight: 700 }}>DAILY</span>}
+                          </td>
+                          {/* Attendance buttons */}
+                          <td style={{ padding: '6px 8px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                              <button onClick={() => setFrac(selectedDate, w.id, 0)} style={{
+                                padding: '4px 8px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                                background: f === 0 ? 'rgba(220,38,38,.2)' : 'rgba(220,38,38,.07)',
+                                color: 'var(--danger)',
+                                boxShadow: f === 0 ? '0 0 0 1.5px var(--danger)' : 'none'
+                              }}>✕</button>
+                              <button onClick={() => setFrac(selectedDate, w.id, 0.5)} style={{
+                                padding: '4px 8px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                                background: f === 0.5 ? 'rgba(251,191,36,.25)' : 'rgba(251,191,36,.07)',
+                                color: '#d97706',
+                                boxShadow: f === 0.5 ? '0 0 0 1.5px #d97706' : 'none'
+                              }}>½</button>
+                              <button onClick={() => setFrac(selectedDate, w.id, 1)} style={{
+                                padding: '4px 10px', borderRadius: 5, border: 'none', cursor: 'pointer',
+                                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                                background: f === 1 ? 'rgba(22,163,74,.25)' : 'rgba(22,163,74,.07)',
+                                color: 'var(--accent)',
+                                boxShadow: f === 1 ? '0 0 0 1.5px var(--accent)' : 'none'
+                              }}>Full</button>
+                            </div>
+                          </td>
+                          {/* Set override */}
+                          <td style={{ padding: '6px 14px', textAlign: 'center' }}>
+                            {hasOv ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+                                <span style={{
+                                  background: 'rgba(37,99,235,.1)', border: '1px solid rgba(37,99,235,.25)',
+                                  color: '#2563eb', borderRadius: 6, padding: '3px 10px',
+                                  fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700
+                                }}>
+                                  💰 {fmt(ov)}{isSticky ? ' 📌' : ''}
+                                </span>
+                                <button onClick={() => clearOverride(w.id)} style={{
+                                  background: 'transparent', border: 'none', color: 'var(--danger)',
+                                  cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: '2px 4px'
+                                }}>✕</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => { setOverrideAmt(''); setOverrideSticky(false); setDayOverrideModal({ wid: w.id }) }} style={{
+                                background: 'var(--surface2)', border: '1px solid var(--border)',
+                                color: 'var(--text2)', borderRadius: 6, cursor: 'pointer',
+                                padding: '4px 12px', fontFamily: 'var(--font-mono)', fontSize: 11
+                              }}>💰 Set</button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+                {crewWs.length === 0 && (
+                  <div style={{ color: 'var(--text2)', fontFamily: 'var(--font-mono)', fontSize: 12, fontStyle: 'italic', padding: 16, textAlign: 'center' }}>
+                    No workers active on this date.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -915,31 +979,6 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                         <td style={{
                           padding: '7px 10px', textAlign: 'right', fontWeight: 800,
                           color: 'var(--accent)', background: 'rgba(22,163,74,.12)',
-                          borderLeft: '2px solid var(--border2)', position: 'sticky', right: 0, zIndex: 1
-                        }}>
-                          {fmt(Math.round(workerStats.reduce((a, s) => a + s.gross, 0)))}
-                        </td>
-                      </tr>
-
-                      {/* NET SALARY row */}
-                      <tr style={{ background: 'rgba(22,163,74,.15)' }}>
-                        <td style={{
-                          padding: '7px 12px', fontWeight: 800, fontSize: 10, letterSpacing: 1,
-                          color: '#fff', background: '#16a34a',
-                          borderRight: '2px solid var(--border2)', position: 'sticky', left: 0, zIndex: 1
-                        }}>NET SALARY</td>
-                        {workerStats.map(({ w, net }) => (
-                          <td key={w.id} style={{
-                            padding: '7px 8px', textAlign: 'right', fontWeight: 700,
-                            color: net >= 0 ? 'var(--text)' : 'var(--danger)',
-                            background: 'rgba(22,163,74,.1)'
-                          }}>
-                            {fmt(Math.round(net))}
-                          </td>
-                        ))}
-                        <td style={{
-                          padding: '7px 10px', textAlign: 'right', fontWeight: 800,
-                          color: '#fff', background: '#16a34a',
                           borderLeft: '2px solid var(--border2)', position: 'sticky', right: 0, zIndex: 1
                         }}>
                           {fmt(Math.round(workerStats.reduce((a, s) => a + s.net, 0)))}
