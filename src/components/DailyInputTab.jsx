@@ -459,13 +459,7 @@ export default function DailyInputTab({ state, updateState, selectedMonth, setSe
                           }}>
                             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, color: isWeekend ? '#d97706' : 'var(--text2)', marginBottom: 2 }}>{DAY_LABELS[dow]}</div>
                             <div style={{ fontWeight: 800, fontSize: 15, color: dayOff ? 'var(--danger)' : 'var(--text)', letterSpacing: 0.5 }}>{d.slice(8)}</div>
-                            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 4 }}>{d.slice(5, 7)}/{d.slice(0, 4)}</div>
-                            <button onClick={() => copyDayUnits(d)} style={{
-                              fontSize: 9, padding: '2px 6px',
-                              background: 'rgba(22,163,74,.1)', color: 'var(--accent)',
-                              border: '1px solid rgba(22,163,74,.25)', borderRadius: 4, cursor: 'pointer',
-                              fontFamily: 'var(--font-mono)', fontWeight: 700
-                            }} title="Copy this day to all other days in week">⎘ Copy</button>
+                            <div style={{ fontSize: 10, color: 'var(--text3)' }}>{d.slice(5, 7)}/{d.slice(0, 4)}</div>
                           </th>
                         )
                       })}
