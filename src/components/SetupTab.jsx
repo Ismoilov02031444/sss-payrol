@@ -71,10 +71,9 @@ export default function SetupTab({ state, updateState }) {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>\u2699 Setup</h2>
+        <h2 style={{ fontFamily: 'var(--font-disp)', fontSize: 22, letterSpacing: 2, margin: 0 }}>⚙ Setup</h2>
       </div>
 
-      {/* Crews */}
       {crews.map(crew => {
         const isOpen = openCrewId === crew.id
         const col = crewColor(crew.id)
@@ -85,7 +84,6 @@ export default function SetupTab({ state, updateState }) {
             borderRadius: 12, marginBottom: 16, overflow: 'hidden',
             boxShadow: 'var(--shadow)', transition: 'border-color .2s'
           }}>
-            {/* Header - click to toggle */}
             <div
               onClick={() => setOpenCrewId(isOpen ? null : crew.id)}
               style={{
@@ -96,11 +94,11 @@ export default function SetupTab({ state, updateState }) {
                 borderBottom: isOpen ? `1px solid ${col}44` : 'none'
               }}>
               <span style={{
-                color: col, fontSize: 18, fontWeight: 700,
+                color: col, fontSize: 20, fontWeight: 700, lineHeight: 1,
                 display: 'inline-block',
                 transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
                 transition: 'transform .2s'
-              }}>\u203a</span>
+              }}>›</span>
               <input
                 value={crew.name}
                 onClick={e => e.stopPropagation()}
@@ -125,11 +123,10 @@ export default function SetupTab({ state, updateState }) {
                   background: 'rgba(220,38,38,.08)', border: '1px solid rgba(220,38,38,.25)',
                   color: 'var(--danger)', borderRadius: 6, cursor: 'pointer', padding: '4px 10px',
                   fontFamily: 'var(--font-mono)', fontSize: 11
-                }}>\u2715 Remove Crew</button>
+                }}>✕ Remove Crew</button>
               </div>
             </div>
 
-            {/* Body - only shown when open */}
             {isOpen && (
               <div style={{ padding: '16px 18px', background: 'var(--surface)' }}>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text2)', marginBottom: 8, letterSpacing: 1 }}>PRODUCTS / PRICES</div>
@@ -159,12 +156,11 @@ export default function SetupTab({ state, updateState }) {
                         background: 'transparent', border: '1px solid rgba(220,38,38,.25)',
                         color: 'var(--danger)', borderRadius: 4, cursor: 'pointer', padding: '3px 8px',
                         fontFamily: 'var(--font-mono)', fontSize: 11
-                      }}>\u2715</button>
+                      }}>✕</button>
                     </div>
                   ))}
                 </div>
 
-                {/* Add product */}
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <input
                     value={newProductName[crew.id] || ''}
@@ -193,7 +189,6 @@ export default function SetupTab({ state, updateState }) {
         )
       })}
 
-      {/* Add crew */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 8 }}>
         <input
           value={newCrewName}
